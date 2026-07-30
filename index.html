@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>英単語クイズ（Supabaseテスト版）</title>
+<link rel="icon" type="image/png" href="英単語favicon.png">
+<link rel="apple-touch-icon" href="英単語favicon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <div id="sbStatus" class="sb-status"><span class="dot off"></span><span>読み込み中…</span></div>
+
+  <!-- ホーム画面 -->
+  <section id="home" class="screen">
+    <h1>英単語クイズ<br><small style="font-size:13px;color:#64748b;">Supabase テスト版</small></h1>
+
+    <div class="feature-nav">
+      <button type="button" id="goWaeiBtn" class="link-btn">→ 和英表現練習</button>
+    </div>
+
+    <div id="dataStatus" class="data-status">
+      <p id="wordCountText">単語データが読み込まれていません。</p>
+      <p id="lastImportText" class="muted"></p>
+    </div>
+
+    <div class="mode-buttons" id="modeButtons">
+      <button id="latest50Btn" class="mode-btn latest50-btn" data-mode="latest50">Latest単語(50個)</button>
+      <button class="mode-btn" data-mode="all">完全にランダムに15個</button>
+      <button class="mode-btn" data-mode="bottom300">下から300単語からランダムに15個</button>
+      <button class="mode-btn" data-mode="bottom100">下から100単語からランダムに15個</button>
+    </div>
+
+    <div class="custom-box">
+      <div class="custom-row">
+        <div class="custom-field">
+          <span class="custom-label">問題数</span>
+          <input type="number" id="customX" class="custom-input" value="15" min="1" max="999">
+          <span class="custom-unit">問</span>
+        </div>
+        <div class="custom-field">
+          <span class="custom-label">最新</span>
+          <input type="number" id="customY" class="custom-input" value="5000" min="1">
+          <span class="custom-unit">件から</span>
+        </div>
+      </div>
+      <button class="mode-btn custom-btn" id="customStartBtn">この設定で開始</button>
+    </div>
+
+    <div class="footer-buttons">
+      <label class="file-btn">
+        <input type="file" id="fileInput" accept=".xlsm,.xlsx,.xls" hidden>
+        データ再取り込み（Supabaseに追加登録）
+      </label>
+      <button id="resumeBtn" class="secondary" hidden>前回の続きから</button>
+    </div>
+
+    <p id="errorMsg" class="error"></p>
+
+    <div class="ai-key-box">
+      <button type="button" id="aiKeyToggleBtn" class="link-btn">🔑 AI機能のAPIキー設定</button>
+      <div id="aiKeyPanel" class="ai-key-panel" hidden>
+        <p class="muted">
+          ローカルサーバー(node server.js)を使わない環境(GitHub Pagesなど、スマホからのアクセス含む)でAI機能を使うには、
+          Gemini APIキーをこの端末のブラウザにのみ保存してください。保存したキーはGoogleへの直接リクエスト以外には使われず、
+          サーバーやリポジトリには一切送信されません。
+        </p>
+        <input type="password" id="aiKeyInput" class="ai-key-input" placeholder="Gemini APIキーを入力" autocomplete="off">
+        <div class="ai-key-actions">
+          <button type="button" id="aiKeySaveBtn" class="secondary">保存</button>
+          <button type="button" id="aiKeyClearBtn" class="secondary">削除</button>
+        </div>
+        <p id="aiKeyStatus" class="muted"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- クイズ画面 -->
+  <section id="quiz" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="backBtn" class="link-btn">← 保存して中断</button>
+      <div class="progress">
+        <span id="roundLabel"></span>
+        <span id="progressLabel"></span>
+      </div>
+      <span class="save-badge">💾 自動保存中</span>
+    </header>
+
+    <div class="card">
+      <div id="rowNum" class="row-num"></div>
+      <div id="englishWord" class="english"></div>
+      <div id="japaneseWord" class="japanese" hidden></div>
+    </div>
+
+    <div id="aiExampleBox" class="ai-box" hidden>
+      <button id="aiExampleBtn" class="ai-btn">✨ 例文をAIにリクエスト</button>
+      <div id="aiExampleResult" class="ai-result" hidden></div>
+    </div>
+
+    <div class="actions">
+      <button id="revealBtn" class="primary big">答えを見る</button>
+      <div id="judgeButtons" class="judge" hidden>
+        <button id="correctBtn" class="judge-btn correct">○ 正解</button>
+        <button id="wrongBtn" class="judge-btn wrong">× 不正解</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ラウンド結果画面 -->
+  <section id="result" class="screen" hidden>
+    <h2 id="resultTitle"></h2>
+    <p id="resultDetail"></p>
+    <ul id="wrongList" class="wrong-list"></ul>
+    <div class="footer-buttons">
+      <button id="nextRoundBtn" class="primary">次の周へ</button>
+      <button id="homeBtn" class="secondary">ホームへ戻る</button>
+    </div>
+  </section>
+
+  <!-- 和英表現練習：ホーム -->
+  <section id="waeiHome" class="screen" hidden>
+    <h1>和英表現練習</h1>
+
+    <div class="data-status">
+      <p id="waeiCountText"></p>
+    </div>
+
+    <div class="mode-buttons">
+      <button id="waeiStartAllBtn" class="mode-btn" disabled>全問ランダムに出題</button>
+    </div>
+
+    <div class="custom-box">
+      <div class="custom-row">
+        <div class="custom-field">
+          <span class="custom-label">問題数</span>
+          <input type="number" id="waeiCustomX" class="custom-input" value="10" min="1">
+          <span class="custom-unit">問</span>
+        </div>
+      </div>
+      <button class="mode-btn custom-btn" id="waeiCustomStartBtn" disabled>この件数で開始</button>
+    </div>
+
+    <div class="footer-buttons">
+      <button id="waeiManageBtn" class="secondary">問題を登録・編集する</button>
+      <button id="waeiResumeBtn" class="secondary" hidden>前回の続きから</button>
+    </div>
+
+    <p id="waeiErrorMsg" class="error"></p>
+
+    <div class="feature-nav" style="margin-top:20px;">
+      <button type="button" id="waeiBackToTopBtn" class="link-btn">← 英単語クイズへ戻る</button>
+    </div>
+  </section>
+
+  <!-- 和英表現練習：登録・編集 -->
+  <section id="waeiForm" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="waeiFormBackBtn" class="link-btn">← 戻る</button>
+      <h2 style="margin:0;">問題の登録・編集</h2>
+      <span></span>
+    </header>
+
+    <div class="waei-form-box">
+      <label class="waei-label" for="waeiInputJa">日本語（問題文）</label>
+      <textarea id="waeiInputJa" class="waei-textarea" rows="2" placeholder="例: 会議を来週に延期していただけますか？"></textarea>
+      <label class="waei-label" for="waeiInputEn">英語（回答例）</label>
+      <textarea id="waeiInputEn" class="waei-textarea" rows="2" placeholder="例: Could we postpone the meeting to next week?"></textarea>
+      <div class="ai-key-actions">
+        <button type="button" id="waeiSaveItemBtn" class="primary" style="flex:1;">登録する</button>
+        <button type="button" id="waeiCancelEditBtn" class="secondary" style="flex:1;" hidden>編集をキャンセル</button>
+      </div>
+      <p id="waeiFormError" class="error"></p>
+    </div>
+
+    <ul id="waeiItemList" class="waei-item-list"></ul>
+  </section>
+
+  <!-- 和英表現練習：テスト -->
+  <section id="waeiQuiz" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="waeiQuizBackBtn" class="link-btn">← 保存して中断</button>
+      <div class="progress">
+        <span id="waeiRoundLabel"></span>
+        <span id="waeiProgressLabel"></span>
+      </div>
+      <span class="save-badge">💾 自動保存中</span>
+    </header>
+
+    <div class="card">
+      <div id="waeiJaText" class="japanese-question"></div>
+      <div id="waeiEnText" class="english-answer" hidden></div>
+    </div>
+
+    <div class="actions">
+      <button id="waeiRevealBtn" class="primary big">回答例を見る</button>
+      <div id="waeiJudgeButtons" class="judge" hidden>
+        <button id="waeiCorrectBtn" class="judge-btn correct">○ できた</button>
+        <button id="waeiWrongBtn" class="judge-btn wrong">× できなかった</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 和英表現練習：結果 -->
+  <section id="waeiResult" class="screen" hidden>
+    <h2 id="waeiResultTitle"></h2>
+    <p id="waeiResultDetail"></p>
+    <ul id="waeiWrongList" class="wrong-list"></ul>
+    <div class="footer-buttons">
+      <button id="waeiNextRoundBtn" class="primary">次の周へ</button>
+      <button id="waeiHomeBtn" class="secondary">和英表現ホームへ</button>
+    </div>
+  </section>
+
+</div>
+
+<script src="lib/xlsx.full.min.js"></script>
+<script src="config.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

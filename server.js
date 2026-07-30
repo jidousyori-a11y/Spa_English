@@ -1,0 +1,306 @@
+'use strict';
+// ローカル専用サーバー。
+// 静的ファイル（index.html / app.js / style.css など）を配信しつつ、
+// POST /api/gemini-examples と /api/words・/api/expressions への書き込み系リクエストだけ
+// サーバー側で処理する。
+//
+// - Gemini の API キーは環境変数 GEMINI_API_KEY からのみ読み取り、ブラウザには渡さない。
+// - Supabaseへの書き込み(insert/update/delete)は環境変数 SUPABASE_SERVICE_ROLE_KEY
+//   （RLSを無視できる管理者キー）を使ってこのサーバーが代行する。
+//   公開されるブラウザ側(config.js)はRLSで読み取り専用に制限されたanonキーしか持たないため、
+//   GitHub Pages等に公開してもこのサーバーが無い環境からは書き込みできない。
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+
+const PORT = process.env.PORT || 10509;
+const ROOT = __dirname;
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const SUPABASE_URL = 'https://owuwhpfybfozzlovmehl.supabase.co';
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+};
+
+function serveStatic(req, res) {
+  const urlPath = decodeURIComponent(req.url.split('?')[0]);
+  const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  const filePath = path.normalize(path.join(ROOT, rel));
+
+  // ROOT の外に出るパス（ディレクトリトラバーサル）は拒否
+  if (!filePath.startsWith(ROOT)) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Not Found');
+      return;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.end(data);
+  });
+}
+
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1e6) req.destroy(); // 念のための上限
+    });
+    req.on('end', () => {
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch (e) { reject(e); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function sendJson(res, status, obj) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(obj));
+}
+
+// service_roleキーでSupabase REST(PostgREST)を叩く。RLSは常にバイパスされる。
+async function supabaseServiceRequest(pathAndQuery, options = {}) {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) {
+    const err = new Error('環境変数 SUPABASE_SERVICE_ROLE_KEY が設定されていません。');
+    err.isConfigError = true;
+    throw err;
+  }
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${pathAndQuery}`, {
+    ...options,
+    headers: {
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+      ...(options.headers || {}),
+    },
+  });
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!res.ok) {
+    const message = data?.message || `Supabase API エラー (HTTP ${res.status})`;
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+function handleSupabaseError(res, err) {
+  if (err.isConfigError) {
+    sendJson(res, 500, { error: err.message });
+    return;
+  }
+  sendJson(res, err.status || 502, { error: 'Supabaseへの書き込みに失敗しました: ' + err.message });
+}
+
+// POST /api/words/import  { rows: [{row, en, ja}, ...] } → words に一括insert
+async function handleWordsImport(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const rows = Array.isArray(payload.rows) ? payload.rows : [];
+  const clean = rows
+    .map(r => ({ row: Number(r.row) || null, en: (r.en || '').toString(), ja: (r.ja || '').toString() }))
+    .filter(r => r.en && r.ja);
+  if (clean.length === 0) {
+    sendJson(res, 400, { error: '追加する単語がありません。' });
+    return;
+  }
+  try {
+    const data = await supabaseServiceRequest('/words', {
+      method: 'POST',
+      body: JSON.stringify(clean),
+    });
+    sendJson(res, 200, { inserted: data.length });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
+// POST /api/expressions  { ja, en } → expressions に1件insert
+async function handleExpressionsCreate(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const ja = (payload.ja || '').toString().trim();
+  const en = (payload.en || '').toString().trim();
+  if (!ja || !en) {
+    sendJson(res, 400, { error: '日本語と英語の両方を入力してください。' });
+    return;
+  }
+  try {
+    const data = await supabaseServiceRequest('/expressions', {
+      method: 'POST',
+      body: JSON.stringify({ ja, en }),
+    });
+    sendJson(res, 200, { item: data[0] });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
+// PATCH /api/expressions/:id  { ja, en } → 1件update
+async function handleExpressionsUpdate(req, res, id) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const ja = (payload.ja || '').toString().trim();
+  const en = (payload.en || '').toString().trim();
+  if (!ja || !en) {
+    sendJson(res, 400, { error: '日本語と英語の両方を入力してください。' });
+    return;
+  }
+  try {
+    const data = await supabaseServiceRequest(`/expressions?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ja, en }),
+    });
+    sendJson(res, 200, { item: data[0] });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
+// DELETE /api/expressions/:id
+async function handleExpressionsDelete(req, res, id) {
+  try {
+    await supabaseServiceRequest(`/expressions?id=eq.${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
+async function handleGeminiExamples(req, res) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: '環境変数 GEMINI_API_KEY が設定されていません。' }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'リクエストの形式が不正です。' }));
+    return;
+  }
+
+  const en = (payload.en || '').toString().trim();
+  const ja = (payload.ja || '').toString().trim();
+  if (!en || !ja) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: '単語情報が不足しています。' }));
+    return;
+  }
+
+  const prompt =
+    `英単語「${en}」（日本語訳: 「${ja}」）について、日本語で簡潔に回答してください。\n` +
+    `1. 発音記号（IPA）と、カタカナで表現するなら何に近いかを示してください。カタカナ表記のうち、アクセント（強く読む部分）に当たる箇所は **太字** にしてください。\n` +
+    `2. 品詞分類を、あてはまるものをすべて列挙してください（例: 名詞 / 自動詞 / 他動詞 / 形容詞 / 副詞 など）。特に動詞の場合は、自動詞・他動詞のどちらか、あるいは両方の用法があるかを明確にしてください。複数の品詞・用法がある場合、実際によく使われるのはどれかという傾向があれば、その旨も記載してください（例:「主に他動詞として使われる」等）。特に補足すべき傾向がなければその旨は省略して構いません。\n` +
+    `3. この単語を使った例文を3つ、英語とその日本語訳のペアで挙げてください。\n` +
+    `4. 日本語訳「${ja}」だけでは伝わりにくいニュアンスや使い分けがあれば、2〜3行で補足してください。特になければ「特になし」としてください。\n` +
+    `見出しや箇条書きを使い、読みやすく整形してください。`;
+
+  try {
+    const apiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    );
+
+    const data = await apiRes.json();
+
+    if (!apiRes.ok) {
+      const message = data?.error?.message || `Gemini API エラー (HTTP ${apiRes.status})`;
+      res.writeHead(apiRes.status, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: message }));
+      return;
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    if (!text) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Gemini から有効な応答が得られませんでした。' }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ text }));
+  } catch (e) {
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'Gemini API への接続に失敗しました: ' + e.message }));
+  }
+}
+
+const server = http.createServer((req, res) => {
+  const urlPath = req.url.split('?')[0];
+  const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
+
+  if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
+    handleGeminiExamples(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/words/import') {
+    handleWordsImport(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/expressions') {
+    handleExpressionsCreate(req, res);
+    return;
+  }
+  if (req.method === 'PATCH' && expressionMatch) {
+    handleExpressionsUpdate(req, res, decodeURIComponent(expressionMatch[1]));
+    return;
+  }
+  if (req.method === 'DELETE' && expressionMatch) {
+    handleExpressionsDelete(req, res, decodeURIComponent(expressionMatch[1]));
+    return;
+  }
+  if (req.method === 'GET') {
+    serveStatic(req, res);
+    return;
+  }
+  res.writeHead(405);
+  res.end('Method Not Allowed');
+});
+
+server.listen(PORT, () => {
+  const keyStatus = process.env.GEMINI_API_KEY ? '検出済み' : '未設定（例文リクエスト機能は使えません）';
+  console.log(`英単語クイズ(Supabaseテスト): http://localhost:${PORT} で起動しました`);
+  console.log(`GEMINI_API_KEY: ${keyStatus}`);
+});
