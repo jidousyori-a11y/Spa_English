@@ -7,7 +7,13 @@
 ## セットアップ
 
 1. Supabaseダッシュボードの **SQL Editor** で `schema.sql` を実行し、`words` / `expressions` テーブルを作成する。
-2. 続けて `seed.sql` を実行すると、元アプリの `words.json`（3000件）をそのままコピーできる（推奨）。
+2. 続けて `seed.sql` を実行すると、単語データ（12,539件）を投入できる（推奨）。
+   `$$SelfEnglish_v1.0.xlsm`（`Wrk`シート）が単語データの一次ソースで、以下の条件でフィルタ済み：
+   - 英語（English列）が5単語以上の長文は除外
+   - 日本語訳が空欄または「-」等の意味のない表示のものは除外
+   - A列に「疑惑」「●」のフラグが付いている行は除外
+   以後の追加分は `~/.claude/skills/spa-english-append` スキルで同じフィルタを適用し、
+   Supabase上の現在の最大No.より大きい行だけを差分insertして`words`テーブルにappendする。
 3. `config.js` は `SpabaseTest` と同じプロジェクトの接続情報を設定済み。
 4. AI例文機能をローカルサーバー経由で使う場合は、`GEMINI_API_KEY` 環境変数が設定された状態で
    `node server.js`（ポート **10509**）を起動し、`http://localhost:10509` を開く。
@@ -19,8 +25,9 @@
 
 - 単語クイズ・和英表現練習の両方を移植（出題モード、クイズ進行、○×判定、周回、AI例文リクエストすべて含む）
 - クイズ進行中のセッション（中断・再開）は元アプリ同様、端末の`localStorage`に保持（Supabaseには保存しない）
-- Excel再取り込みは、パース結果のうち **Supabase上に無い末尾分だけ** を`words`テーブルにinsertする方式
-  （既存データの上書き・削除はしない）
+- ブラウザ上のExcel再取り込み機能（`server.js`経由）も、パース結果のうち **Supabase上に無い末尾分だけ**
+  を`words`テーブルにinsertする方式（既存データの上書き・削除はしない）。定期的な一括追加は
+  `~/.claude/skills/spa-english-append` スキル（同じ差分ロジック）を使う運用に切り替えた
 - 元アプリにあった「words.json/expressions.jsonエクスポート→git commit」の運用は、Supabaseが
   そのまま永続化するため廃止
 

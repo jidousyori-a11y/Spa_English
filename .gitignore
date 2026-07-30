@@ -1,3 +1,4 @@
 server.log
 server_err.log
 node_modules/
+append_log.txt
