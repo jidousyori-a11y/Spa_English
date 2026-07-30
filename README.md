@@ -12,7 +12,7 @@
    - 英語（English列）が5単語以上の長文は除外
    - 日本語訳が空欄または「-」等の意味のない表示のものは除外
    - A列に「疑惑」「●」のフラグが付いている行は除外
-   以後の追加分は `~/.claude/skills/spa-english-append` スキルで同じフィルタを適用し、
+   以後の追加分は `~/.claude/skills/english_spabase_update` スキルで同じフィルタを適用し、
    Supabase上の現在の最大No.より大きい行だけを差分insertして`words`テーブルにappendする。
 3. `config.js` は `SpabaseTest` と同じプロジェクトの接続情報を設定済み。
 4. AI例文機能をローカルサーバー経由で使う場合は、`GEMINI_API_KEY` 環境変数が設定された状態で
@@ -27,7 +27,7 @@
 - クイズ進行中のセッション（中断・再開）は元アプリ同様、端末の`localStorage`に保持（Supabaseには保存しない）
 - ブラウザ上のExcel再取り込み機能（`server.js`経由）も、パース結果のうち **Supabase上に無い末尾分だけ**
   を`words`テーブルにinsertする方式（既存データの上書き・削除はしない）。定期的な一括追加は
-  `~/.claude/skills/spa-english-append` スキル（同じ差分ロジック）を使う運用に切り替えた
+  `~/.claude/skills/english_spabase_update` スキル（同じ差分ロジック）を使う運用に切り替えた
 - 元アプリにあった「words.json/expressions.jsonエクスポート→git commit」の運用は、Supabaseが
   そのまま永続化するため廃止
 
