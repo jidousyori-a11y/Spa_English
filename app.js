@@ -21,6 +21,7 @@ const screens = {
   waeiForm: $('waeiForm'),
   waeiQuiz: $('waeiQuiz'),
   waeiResult: $('waeiResult'),
+  notes: $('notes'),
 };
 
 function showScreen(name) {
@@ -33,6 +34,8 @@ function showScreen(name) {
 
 let words = [];
 let expressions = [];
+let notes = [];
+let editingNoteId = null;
 
 // 現在の画面に表示中のAI補足（保存対象）。「補足を保存する」ボタンが参照する。
 let lastAiNoteWordId = null;
@@ -61,6 +64,9 @@ async function refreshWords() {
 }
 async function refreshExpressions() {
   expressions = await fetchAllRows('expressions', 'created_at');
+}
+async function refreshNotes() {
+  notes = await fetchAllRows('notes', 'created_at');
 }
 
 function renderStatusBar(state, msg) {
@@ -216,6 +222,114 @@ function pickWords(allWords, mode, latestAddedCount) {
   }
   const n = Math.min(quizSize, pool.length);
   return { words: shuffle(pool).slice(0, n), label };
+}
+
+// ================================================================
+// 更改メモ（単語データ・和英表現とは完全に独立。データ本体はSupabase）
+// ================================================================
+
+async function addNoteItem(text) {
+  await apiFetch('/api/notes', { method: 'POST', body: JSON.stringify({ text }) });
+  await refreshNotes();
+}
+async function updateNoteItem(id, text) {
+  await apiFetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ text }) });
+  await refreshNotes();
+}
+async function deleteNoteItem(id) {
+  await apiFetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await refreshNotes();
+}
+
+function renderNotesList() {
+  $('notesErrorMsg').textContent = '';
+  $('notesInput').value = '';
+
+  const ul = $('notesList');
+  ul.innerHTML = '';
+
+  for (const n of notes.slice().reverse()) { // 新しい登録を上に
+    const li = document.createElement('li');
+
+    if (n.id === editingNoteId) {
+      const ta = document.createElement('textarea');
+      ta.className = 'waei-textarea';
+      ta.rows = 3;
+      ta.value = n.text;
+      li.appendChild(ta);
+
+      const actions = document.createElement('div');
+      actions.className = 'waei-item-actions';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.textContent = '保存';
+      saveBtn.addEventListener('click', async () => {
+        const text = ta.value.trim();
+        if (!text) return;
+        try {
+          await updateNoteItem(n.id, text);
+          editingNoteId = null;
+          renderNotesList();
+        } catch (err) {
+          $('notesErrorMsg').textContent = '保存に失敗しました: ' + err.message;
+        }
+      });
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.textContent = 'キャンセル';
+      cancelBtn.addEventListener('click', () => { editingNoteId = null; renderNotesList(); });
+      actions.appendChild(saveBtn);
+      actions.appendChild(cancelBtn);
+      li.appendChild(actions);
+    } else {
+      const dateDiv = document.createElement('div');
+      dateDiv.className = 'waei-item-ja';
+      dateDiv.textContent = new Date(n.created_at).toLocaleString('ja-JP');
+
+      const textDiv = document.createElement('div');
+      textDiv.className = 'waei-item-en';
+      textDiv.style.whiteSpace = 'pre-wrap';
+      textDiv.textContent = n.text;
+
+      const actions = document.createElement('div');
+      actions.className = 'waei-item-actions';
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.textContent = '編集';
+      editBtn.addEventListener('click', () => { editingNoteId = n.id; renderNotesList(); });
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.textContent = '削除';
+      delBtn.addEventListener('click', async () => {
+        if (!confirm('このメモを削除しますか？')) return;
+        try {
+          await deleteNoteItem(n.id);
+          renderNotesList();
+        } catch (err) {
+          $('notesErrorMsg').textContent = '削除に失敗しました: ' + err.message;
+        }
+      });
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+
+      li.appendChild(dateDiv);
+      li.appendChild(textDiv);
+      li.appendChild(actions);
+    }
+
+    ul.appendChild(li);
+  }
+}
+
+async function submitNewNote() {
+  const text = $('notesInput').value.trim();
+  if (!text) return;
+  try {
+    await addNoteItem(text);
+    renderNotesList();
+  } catch (err) {
+    $('notesErrorMsg').textContent = '保存に失敗しました: ' + err.message;
+  }
 }
 
 // ================================================================
@@ -987,6 +1101,16 @@ function bindEvents() {
   // ---- 和英表現練習 ----
 
   $('goWaeiBtn').addEventListener('click', () => renderWaeiHome());
+
+  // ---- 更改メモ ----
+
+  $('goNotesBtn').addEventListener('click', () => {
+    editingNoteId = null;
+    renderNotesList();
+    showScreen('notes');
+  });
+  $('notesBackBtn').addEventListener('click', () => renderHome());
+  $('notesAddBtn').addEventListener('click', submitNewNote);
   $('waeiBackToTopBtn').addEventListener('click', () => renderHome());
   $('waeiManageBtn').addEventListener('click', () => renderWaeiForm());
   $('waeiFormBackBtn').addEventListener('click', () => renderWaeiHome());
@@ -1089,7 +1213,7 @@ async function init() {
     return;
   }
   try {
-    await Promise.all([refreshWords(), refreshExpressions()]);
+    await Promise.all([refreshWords(), refreshExpressions(), refreshNotes()]);
   } catch (err) {
     renderStatusBar('error', err.message);
     return;
