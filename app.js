@@ -174,7 +174,7 @@ function shuffle(arr) {
 }
 
 // マーカー(D列由来)ごとのクイズモード用ラベル。未知のマーカーは値をそのまま表示する。
-const MARKER_LABELS = { t: 'Tips' };
+const MARKER_LABELS = { tips: 'Tips' };
 
 function pickWords(allWords, mode, latestAddedCount) {
   let pool;

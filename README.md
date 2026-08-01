@@ -15,7 +15,7 @@
    以後の追加分は `~/.claude/skills/english_spabase_update` スキルで同じフィルタを適用し、
    Supabase上の現在の最大No.より大きい行だけを差分insertして`words`テーブルにappendする。
 3. 既に運用中のSupabaseプロジェクトに対しては、`add_marker_column.sql` を実行して
-   `words.marker`列（Excel D列由来、`t`=tips等のマーカー用）を追加する。
+   `words.marker`列（Excel D列由来、`tips`等のマーカー用）を追加する。
    新規セットアップの場合は`schema.sql`に既に含まれているため不要。
 4. `config.js` は `SpabaseTest` と同じプロジェクトの接続情報を設定済み。
 5. AI例文機能をローカルサーバー経由で使う場合は、`GEMINI_API_KEY` 環境変数が設定された状態で
@@ -38,14 +38,15 @@
 
 `words.marker`列（Excel `Wrk`シートD列由来）に値が入っている単語だけを対象にした
 クイズモードをホーム画面に動的表示する（`app.js`の`renderMarkerButtons`）。
-現在は`t`（Tips）のみだが、今後複数種のマーカーに拡充していく想定で、
+現在は`tips`（Tips）のみだが、今後複数種のマーカーに拡充していく想定で、
 新しいマーカー値が`words`テーブルに現れれば自動的にボタンが増える
 （表示名を付けたい場合は`app.js`の`MARKER_LABELS`に追記、未登録なら値をそのまま表示）。
 
 マーカーは`~/.claude/skills/english_spabase_update`スキルで、既存の単語に対しても
 Excel側の値をSupabaseへ同期できる（新規単語の差分追加とは別に、既存行のマーカー変更も
-検知してUPDATEする）。ただしフィルタで元々除外され未インポートの単語にマーカーを
-付けても自動では追加されない。
+検知してUPDATEする）。**マーカーが付いている行は、長文・和訳なし等の除外条件より常に
+優先されて取り込まれる**（2026-08-01〜）。除外されて既にSupabase上に無い行にマーカーが
+後から付いた場合も、遡って自動的にinsertされる。
 
 ## セキュリティ上の注意
 
