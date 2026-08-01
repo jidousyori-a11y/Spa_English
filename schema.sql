@@ -7,6 +7,7 @@ create table if not exists public.words (
   row integer,
   en text not null,
   ja text not null,
+  marker text, -- Excel Wrkシート D列由来。例: 't' = tips。複数種のマーカーを今後追加予定
   created_at timestamptz not null default now()
 );
 

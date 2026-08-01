@@ -119,7 +119,12 @@ async function handleWordsImport(req, res) {
   }
   const rows = Array.isArray(payload.rows) ? payload.rows : [];
   const clean = rows
-    .map(r => ({ row: Number(r.row) || null, en: (r.en || '').toString(), ja: (r.ja || '').toString() }))
+    .map(r => ({
+      row: Number(r.row) || null,
+      en: (r.en || '').toString(),
+      ja: (r.ja || '').toString(),
+      marker: r.marker ? r.marker.toString().trim() || null : null,
+    }))
     .filter(r => r.en && r.ja);
   if (clean.length === 0) {
     sendJson(res, 400, { error: '追加する単語がありません。' });

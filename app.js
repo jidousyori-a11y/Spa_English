@@ -138,7 +138,8 @@ async function importExcelFile(file) {
     const en = (r[4] ?? '').toString().trim();
     const ja = (r[5] ?? '').toString().trim();
     if (!en || !ja) continue;
-    parsed.push({ row: parsed.length + 1, en, ja });
+    const marker = (r[3] ?? '').toString().trim() || null;
+    parsed.push({ row: parsed.length + 1, en, ja, marker });
   }
   if (parsed.length === 0) {
     throw new Error('E列・F列に有効なデータが見つかりませんでした。');
@@ -172,10 +173,20 @@ function shuffle(arr) {
   return a;
 }
 
+// マーカー(D列由来)ごとのクイズモード用ラベル。未知のマーカーは値をそのまま表示する。
+const MARKER_LABELS = { t: 'Tips' };
+
 function pickWords(allWords, mode, latestAddedCount) {
   let pool;
   let label;
   let quizSize = QUIZ_SIZE;
+  if (mode.startsWith('marker:')) {
+    const marker = mode.slice('marker:'.length);
+    pool = allWords.filter(w => w.marker === marker);
+    label = `${MARKER_LABELS[marker] || marker}単語`;
+    const n = Math.min(quizSize, pool.length);
+    return { words: shuffle(pool).slice(0, n), label };
+  }
   switch (mode) {
     case 'latest50': {
       const n = Math.max(1, latestAddedCount || 50);
@@ -449,8 +460,32 @@ function waeiNextRound() {
 
 // ---------- Home rendering ----------
 
+function renderMarkerButtons() {
+  const container = $('markerButtons');
+  container.innerHTML = '';
+  const markers = [...new Set(words.map(w => w.marker).filter(Boolean))].sort();
+  for (const marker of markers) {
+    const count = words.filter(w => w.marker === marker).length;
+    const btn = document.createElement('button');
+    btn.className = 'mode-btn';
+    btn.dataset.mode = `marker:${marker}`;
+    btn.textContent = `${MARKER_LABELS[marker] || marker}単語のみ（${count}個から）`;
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      const existing = loadSession();
+      if (existing && existing.currentIndex < existing.words.length) {
+        if (!confirm('進行中のクイズがあります。新しく始めると進捗は失われます。続けますか？')) return;
+      }
+      clearSession();
+      startNewSession(btn.dataset.mode);
+    });
+    container.appendChild(btn);
+  }
+}
+
 function renderHome() {
   const session = loadSession();
+  renderMarkerButtons();
   const modeBtns = document.querySelectorAll('.mode-btn');
   const meta = loadImportMeta();
 

@@ -14,8 +14,11 @@
    - A列に「疑惑」「●」のフラグが付いている行は除外
    以後の追加分は `~/.claude/skills/english_spabase_update` スキルで同じフィルタを適用し、
    Supabase上の現在の最大No.より大きい行だけを差分insertして`words`テーブルにappendする。
-3. `config.js` は `SpabaseTest` と同じプロジェクトの接続情報を設定済み。
-4. AI例文機能をローカルサーバー経由で使う場合は、`GEMINI_API_KEY` 環境変数が設定された状態で
+3. 既に運用中のSupabaseプロジェクトに対しては、`add_marker_column.sql` を実行して
+   `words.marker`列（Excel D列由来、`t`=tips等のマーカー用）を追加する。
+   新規セットアップの場合は`schema.sql`に既に含まれているため不要。
+4. `config.js` は `SpabaseTest` と同じプロジェクトの接続情報を設定済み。
+5. AI例文機能をローカルサーバー経由で使う場合は、`GEMINI_API_KEY` 環境変数が設定された状態で
    `node server.js`（ポート **10509**）を起動し、`http://localhost:10509` を開く。
    - 環境変数が無い場合や `file://` 直接オープンでも、ホーム画面の「🔑 AI機能のAPIキー設定」で
      Gemini APIキーをこの端末のブラウザに保存すれば、ブラウザから直接Gemini APIを呼び出せる
@@ -30,6 +33,19 @@
   `~/.claude/skills/english_spabase_update` スキル（同じ差分ロジック）を使う運用に切り替えた
 - 元アプリにあった「words.json/expressions.jsonエクスポート→git commit」の運用は、Supabaseが
   そのまま永続化するため廃止
+
+## マーカー付きクイズモード（2026-08-01〜）
+
+`words.marker`列（Excel `Wrk`シートD列由来）に値が入っている単語だけを対象にした
+クイズモードをホーム画面に動的表示する（`app.js`の`renderMarkerButtons`）。
+現在は`t`（Tips）のみだが、今後複数種のマーカーに拡充していく想定で、
+新しいマーカー値が`words`テーブルに現れれば自動的にボタンが増える
+（表示名を付けたい場合は`app.js`の`MARKER_LABELS`に追記、未登録なら値をそのまま表示）。
+
+マーカーは`~/.claude/skills/english_spabase_update`スキルで、既存の単語に対しても
+Excel側の値をSupabaseへ同期できる（新規単語の差分追加とは別に、既存行のマーカー変更も
+検知してUPDATEする）。ただしフィルタで元々除外され未インポートの単語にマーカーを
+付けても自動では追加されない。
 
 ## セキュリティ上の注意
 
