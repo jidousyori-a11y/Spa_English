@@ -8,6 +8,7 @@ create table if not exists public.words (
   en text not null,
   ja text not null,
   marker text, -- Excel Wrkシート D列由来。例: 'tips'。複数種のマーカーを今後追加予定
+  ai_note text, -- ユーザーが選んで保存したAIリクエスト結果（英和クイズの回答表示時に再利用）
   created_at timestamptz not null default now()
 );
 

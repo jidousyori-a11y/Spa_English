@@ -34,6 +34,10 @@ function showScreen(name) {
 let words = [];
 let expressions = [];
 
+// 現在の画面に表示中のAI補足（保存対象）。「補足を保存する」ボタンが参照する。
+let lastAiNoteWordId = null;
+let lastAiNoteText = null;
+
 // PostgRESTはデフォルトで1リクエストあたり最大1000件しか返さないため、
 // rangeで全件取得できるまでページングする。
 async function fetchAllRows(table, orderCol) {
@@ -602,11 +606,29 @@ function renderQuiz() {
 
   const aiBtn = $('aiExampleBtn');
   const aiResult = $('aiExampleResult');
-  aiBtn.hidden = false;
-  aiBtn.disabled = false;
-  aiBtn.textContent = '✨ 例文をAIにリクエスト';
-  aiResult.hidden = true;
-  aiResult.textContent = '';
+  const saveBtn = $('saveAiNoteBtn');
+  const saveStatus = $('saveAiNoteStatus');
+  saveStatus.hidden = true;
+  saveStatus.textContent = '';
+
+  if (w.ai_note) {
+    // 保存済みの補足があれば、AIへの再リクエストなしに最初から回答として表示する。
+    lastAiNoteWordId = w.id;
+    lastAiNoteText = w.ai_note;
+    aiResult.innerHTML = markdownToHtml(w.ai_note);
+    aiResult.hidden = false;
+    aiBtn.hidden = true;
+    saveBtn.hidden = true;
+  } else {
+    lastAiNoteWordId = null;
+    lastAiNoteText = null;
+    aiBtn.hidden = false;
+    aiBtn.disabled = false;
+    aiBtn.textContent = '✨ 例文をAIにリクエスト';
+    aiResult.hidden = true;
+    aiResult.textContent = '';
+    saveBtn.hidden = true;
+  }
 
   showScreen('quiz');
 }
@@ -741,6 +763,13 @@ async function requestAiExamples() {
     resultEl.innerHTML = markdownToHtml(text);
     resultEl.hidden = false;
     btn.hidden = true;
+    lastAiNoteWordId = w.id;
+    lastAiNoteText = text;
+    const saveBtn = $('saveAiNoteBtn');
+    saveBtn.hidden = false;
+    saveBtn.disabled = false;
+    saveBtn.textContent = '💾 この補足を保存する';
+    $('saveAiNoteStatus').hidden = true;
   } catch (err) {
     const hint = key
       ? '（保存されているAPIキーが正しいか、ホーム画面の「AI機能のAPIキー設定」から確認してください）'
@@ -750,6 +779,39 @@ async function requestAiExamples() {
     resultEl.hidden = false;
     btn.disabled = false;
     btn.textContent = '✨ 例文をAIにリクエスト';
+    lastAiNoteWordId = null;
+    lastAiNoteText = null;
+  }
+}
+
+// AIリクエスト結果を、その単語に紐づけてSupabaseへ保存する（ローカルサーバー経由のみ）。
+async function saveAiNote() {
+  if (!lastAiNoteWordId || !lastAiNoteText) return;
+  const btn = $('saveAiNoteBtn');
+  const status = $('saveAiNoteStatus');
+  btn.disabled = true;
+  status.hidden = false;
+  status.textContent = '保存中…';
+  try {
+    await apiFetch(`/api/words/${encodeURIComponent(lastAiNoteWordId)}/ai-note`, {
+      method: 'PATCH',
+      body: JSON.stringify({ note: lastAiNoteText }),
+    });
+    const cached = words.find(x => x.id === lastAiNoteWordId);
+    if (cached) cached.ai_note = lastAiNoteText;
+    const session = loadSession();
+    if (session) {
+      const sw = session.words[session.currentIndex];
+      if (sw && sw.id === lastAiNoteWordId) {
+        sw.ai_note = lastAiNoteText;
+        saveSession(session);
+      }
+    }
+    status.textContent = '✅ 保存しました。次回以降この単語の回答として表示されます。';
+    btn.hidden = true;
+  } catch (err) {
+    status.textContent = '保存に失敗しました: ' + err.message;
+    btn.disabled = false;
   }
 }
 
@@ -857,6 +919,7 @@ function bindEvents() {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
       const mode = btn.dataset.mode;
+      if (!mode) return; // customStartBtn等、data-modeを持たない.mode-btnは専用リスナー側で処理する
       const existing = loadSession();
       if (existing && existing.currentIndex < existing.words.length) {
         if (!confirm('進行中のクイズがあります。新しく始めると進捗は失われます。続けますか？')) return;
@@ -879,6 +942,7 @@ function bindEvents() {
 
   $('revealBtn').addEventListener('click', reveal);
   $('aiExampleBtn').addEventListener('click', requestAiExamples);
+  $('saveAiNoteBtn').addEventListener('click', saveAiNote);
   $('correctBtn').addEventListener('click', () => judge(true));
   $('wrongBtn').addEventListener('click', () => judge(false));
 

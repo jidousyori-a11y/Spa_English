@@ -193,6 +193,31 @@ async function handleExpressionsUpdate(req, res, id) {
   }
 }
 
+// PATCH /api/words/:id/ai-note  { note } → 1件のwords.ai_noteを更新
+async function handleWordsAiNoteUpdate(req, res, id) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const note = (payload.note || '').toString().trim();
+  if (!note) {
+    sendJson(res, 400, { error: '保存する内容がありません。' });
+    return;
+  }
+  try {
+    const data = await supabaseServiceRequest(`/words?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ai_note: note }),
+    });
+    sendJson(res, 200, { item: data[0] });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
 // DELETE /api/expressions/:id
 async function handleExpressionsDelete(req, res, id) {
   try {
@@ -275,6 +300,7 @@ async function handleGeminiExamples(req, res) {
 const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
   const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
+  const wordAiNoteMatch = urlPath.match(/^\/api\/words\/([^/]+)\/ai-note$/);
 
   if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
     handleGeminiExamples(req, res);
@@ -290,6 +316,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'PATCH' && expressionMatch) {
     handleExpressionsUpdate(req, res, decodeURIComponent(expressionMatch[1]));
+    return;
+  }
+  if (req.method === 'PATCH' && wordAiNoteMatch) {
+    handleWordsAiNoteUpdate(req, res, decodeURIComponent(wordAiNoteMatch[1]));
     return;
   }
   if (req.method === 'DELETE' && expressionMatch) {
