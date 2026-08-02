@@ -22,6 +22,7 @@ const screens = {
   waeiQuiz: $('waeiQuiz'),
   waeiResult: $('waeiResult'),
   notes: $('notes'),
+  wordsRegister: $('wordsRegister'),
 };
 
 function showScreen(name) {
@@ -170,6 +171,68 @@ async function importExcelFile(file) {
   });
 
   return { addedCount: toInsert.length, totalCount: words.length };
+}
+
+// ---------- 単語の直接登録（一括貼り付け。ローカルサーバー経由でのみ書き込み可能） ----------
+// 1行1件、"English :: 日本語" 形式。":: " がデリミタ、"##" 以降はマーカー。
+// Excel由来ではないため row は付けない(null のままSupabaseに保存され、将来のExcel同期と
+// 行番号で衝突することがない)。
+
+function parseBulkWordsInput(text) {
+  const rows = [];
+  const errorLines = [];
+  const lines = text.split('\n');
+  lines.forEach((rawLine, i) => {
+    const line = rawLine.trim();
+    if (!line) return;
+    const delimIdx = line.indexOf('::');
+    if (delimIdx === -1) {
+      errorLines.push(i + 1);
+      return;
+    }
+    const en = line.slice(0, delimIdx).trim();
+    let rest = line.slice(delimIdx + 2).trim();
+    let marker = null;
+    const markerIdx = rest.indexOf('##');
+    if (markerIdx !== -1) {
+      marker = rest.slice(markerIdx + 2).trim() || null;
+      rest = rest.slice(0, markerIdx).trim();
+    }
+    const ja = rest;
+    if (!en || !ja) {
+      errorLines.push(i + 1);
+      return;
+    }
+    rows.push({ en, ja, marker });
+  });
+  return { rows, errorLines };
+}
+
+async function submitBulkWordsRegister() {
+  const input = $('wordsRegisterBulkInput');
+  const errorEl = $('wordsRegisterBulkError');
+  const statusEl = $('wordsRegisterBulkStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+
+  const { rows, errorLines } = parseBulkWordsInput(input.value);
+  if (rows.length === 0) {
+    errorEl.textContent = '登録できる行がありませんでした（"English :: 日本語" の形式で入力してください）。';
+    return;
+  }
+
+  try {
+    const data = await apiFetch('/api/words/import', { method: 'POST', body: JSON.stringify({ rows }) });
+    await refreshWords();
+    let msg = `✅ ${data.inserted}件登録しました。`;
+    if (errorLines.length) {
+      msg += ` （形式が不正で無視した行: ${errorLines.join(', ')}行目）`;
+    }
+    statusEl.textContent = msg;
+    input.value = '';
+  } catch (err) {
+    errorEl.textContent = '登録に失敗しました: ' + err.message;
+  }
 }
 
 // ---------- Sampling ----------
@@ -1101,6 +1164,17 @@ function bindEvents() {
   // ---- 和英表現練習 ----
 
   $('goWaeiBtn').addEventListener('click', () => renderWaeiHome());
+
+  // ---- 単語を直接登録 ----
+
+  $('goWordsRegisterBtn').addEventListener('click', () => {
+    $('wordsRegisterBulkInput').value = '';
+    $('wordsRegisterBulkError').textContent = '';
+    $('wordsRegisterBulkStatus').textContent = '';
+    showScreen('wordsRegister');
+  });
+  $('wordsRegisterBackBtn').addEventListener('click', () => renderHome());
+  $('wordsRegisterBulkSaveBtn').addEventListener('click', submitBulkWordsRegister);
 
   // ---- 更改メモ ----
 

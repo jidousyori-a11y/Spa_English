@@ -19,6 +19,7 @@
 
     <div class="feature-nav">
       <button type="button" id="goWaeiBtn" class="link-btn">→ 和英表現練習</button>
+      <button type="button" id="goWordsRegisterBtn" class="link-btn">➕ 単語を直接登録</button>
       <button type="button" id="goNotesBtn" class="link-btn">📝 更改メモ</button>
     </div>
 
@@ -124,6 +125,26 @@
     <div class="footer-buttons">
       <button id="nextRoundBtn" class="primary">次の周へ</button>
       <button id="homeBtn" class="secondary">ホームへ戻る</button>
+    </div>
+  </section>
+
+  <!-- 単語を直接登録（ローカルサーバー起動時のみ動作） -->
+  <section id="wordsRegister" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="wordsRegisterBackBtn" class="link-btn">← 戻る</button>
+      <h2 style="margin:0;">単語を直接登録</h2>
+      <span></span>
+    </header>
+    <p class="muted">Excelを介さず、単語をSupabaseに直接登録します（ローカルサーバー起動時のみ）。</p>
+
+    <div class="waei-form-box">
+      <label class="waei-label" for="wordsRegisterBulkInput">1行1件、`English :: 日本語` 形式で貼り付けてください。行末に `##マーカー名` を付けるとマーカーも設定されます。</label>
+      <textarea id="wordsRegisterBulkInput" class="waei-textarea" rows="8" placeholder="sophistry :: 詭弁；へりくつ&#10;have an inkling :: うすうす感づいている##idiom"></textarea>
+      <div class="ai-key-actions">
+        <button type="button" id="wordsRegisterBulkSaveBtn" class="primary" style="flex:1;">一括登録する</button>
+      </div>
+      <p id="wordsRegisterBulkError" class="error"></p>
+      <p id="wordsRegisterBulkStatus" class="muted"></p>
     </div>
   </section>
 
