@@ -235,6 +235,33 @@ async function submitBulkWordsRegister() {
   }
 }
 
+// ---------- CSVダウンロード（バックアップ。anon読み取りのみで完結し、ローカルサーバー不要） ----------
+
+function csvEscape(v) {
+  const s = v === null || v === undefined ? '' : String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function exportWordsCsv() {
+  const columns = ['id', 'row', 'en', 'ja', 'marker', 'ai_note', 'created_at'];
+  const lines = [columns.join(',')];
+  for (const w of words) {
+    lines.push(columns.map(c => csvEscape(w[c])).join(','));
+  }
+  const csv = '﻿' + lines.join('\r\n'); // BOM付き(Excelでの文字化け防止)
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  a.href = url;
+  a.download = `spabase_english_words_${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // ---------- Sampling ----------
 
 function shuffle(arr) {
@@ -1110,6 +1137,8 @@ function bindEvents() {
     const s = loadSession();
     if (s) renderQuiz();
   });
+
+  $('exportCsvBtn').addEventListener('click', exportWordsCsv);
 
   $('backBtn').addEventListener('click', () => {
     if (confirm('クイズを中断しますか？\n進捗は自動保存されているので、ホームの「前回の続きから」でいつでも再開できます。')) {
