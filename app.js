@@ -262,7 +262,7 @@ function pickWords(allWords, mode, latestAddedCount) {
   }
   switch (mode) {
     case 'latest50': {
-      const n = Math.max(1, latestAddedCount || 50);
+      const n = Math.max(1, latestAddedCount || 15);
       pool = allWords.slice(-n);
       label = `Latest単語(${n}個)`;
       quizSize = n;
@@ -678,7 +678,7 @@ function renderHome() {
     } else {
       $('lastImportText').textContent = 'Supabase上のデータを表示しています。';
     }
-    const latestN = Math.max(1, (meta && meta.latestAddedCount) || 50);
+    const latestN = Math.max(1, (meta && meta.latestAddedCount) || 15);
     $('latest50Btn').textContent = `Latest単語(${latestN}個)`;
     modeBtns.forEach(b => b.disabled = false);
   } else {
