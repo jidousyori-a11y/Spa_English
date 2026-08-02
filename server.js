@@ -193,6 +193,37 @@ async function handleExpressionsUpdate(req, res, id) {
   }
 }
 
+// PATCH /api/words/:id  { en, ja, ai_note } → クイズ中の編集用。en/jaは必須、ai_noteは
+// 空文字を渡せば削除できる(null/undefinedの場合のみ更新しない＝キー自体を省略する)。
+async function handleWordsUpdate(req, res, id) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const en = (payload.en ?? '').toString().trim();
+  const ja = (payload.ja ?? '').toString().trim();
+  if (!en || !ja) {
+    sendJson(res, 400, { error: '英語と日本語の両方を入力してください。' });
+    return;
+  }
+  const body = { en, ja };
+  if (typeof payload.ai_note === 'string') {
+    body.ai_note = payload.ai_note.trim() || null;
+  }
+  try {
+    const data = await supabaseServiceRequest(`/words?id=eq.${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+    sendJson(res, 200, { item: data[0] });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
 // PATCH /api/words/:id/ai-note  { note } → 1件のwords.ai_noteを更新
 async function handleWordsAiNoteUpdate(req, res, id) {
   let payload;
@@ -366,6 +397,7 @@ const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
   const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
   const wordAiNoteMatch = urlPath.match(/^\/api\/words\/([^/]+)\/ai-note$/);
+  const wordMatch = urlPath.match(/^\/api\/words\/([^/]+)$/);
   const noteMatch = urlPath.match(/^\/api\/notes\/([^/]+)$/);
 
   if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
@@ -386,6 +418,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'PATCH' && wordAiNoteMatch) {
     handleWordsAiNoteUpdate(req, res, decodeURIComponent(wordAiNoteMatch[1]));
+    return;
+  }
+  if (req.method === 'PATCH' && wordMatch) {
+    handleWordsUpdate(req, res, decodeURIComponent(wordMatch[1]));
     return;
   }
   if (req.method === 'DELETE' && expressionMatch) {

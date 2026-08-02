@@ -115,6 +115,21 @@
         <button id="correctBtn" class="judge-btn correct">○ 正解</button>
         <button id="wrongBtn" class="judge-btn wrong">× 不正解</button>
       </div>
+      <button type="button" id="editWordBtn" class="secondary" hidden>✏️ この単語を編集</button>
+    </div>
+
+    <div id="editWordBox" class="waei-form-box" hidden>
+      <label class="waei-label" for="editWordEn">English</label>
+      <input type="text" id="editWordEn" class="waei-textarea">
+      <label class="waei-label" for="editWordJa">日本語</label>
+      <input type="text" id="editWordJa" class="waei-textarea">
+      <label class="waei-label" for="editWordAiNote">AI補足（自由に編集・追記・一部削除できます）</label>
+      <textarea id="editWordAiNote" class="waei-textarea" rows="8"></textarea>
+      <div class="ai-key-actions">
+        <button type="button" id="editWordSaveBtn" class="primary" style="flex:1;">保存する</button>
+        <button type="button" id="editWordCancelBtn" class="secondary" style="flex:1;">キャンセル</button>
+      </div>
+      <p id="editWordError" class="error"></p>
     </div>
   </section>
 

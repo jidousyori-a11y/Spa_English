@@ -801,12 +801,16 @@ function renderQuiz() {
     $('revealBtn').hidden = true;
     $('judgeButtons').hidden = false;
     $('aiExampleBox').hidden = false;
+    $('editWordBtn').hidden = false;
   } else {
     $('japaneseWord').hidden = true;
     $('revealBtn').hidden = false;
     $('judgeButtons').hidden = true;
     $('aiExampleBox').hidden = true;
+    $('editWordBtn').hidden = true;
   }
+  $('editWordBox').hidden = true;
+  $('editWordError').textContent = '';
 
   const aiBtn = $('aiExampleBtn');
   const aiResult = $('aiExampleResult');
@@ -835,6 +839,66 @@ function renderQuiz() {
   }
 
   showScreen('quiz');
+}
+
+// ---------- クイズ中の単語編集（English/日本語/AI補足。ローカルサーバー経由でのみ書き込み可能） ----------
+
+function openEditWord() {
+  const session = loadSession();
+  if (!session) return;
+  const w = session.words[session.currentIndex];
+  $('editWordEn').value = w.en;
+  $('editWordJa').value = w.ja;
+  $('editWordAiNote').value = w.ai_note || '';
+  $('editWordError').textContent = '';
+  $('editWordBox').hidden = false;
+  $('judgeButtons').hidden = true;
+  $('editWordBtn').hidden = true;
+}
+
+function closeEditWord() {
+  $('editWordBox').hidden = true;
+  $('judgeButtons').hidden = false;
+  $('editWordBtn').hidden = false;
+}
+
+async function saveEditWord() {
+  const session = loadSession();
+  if (!session) return;
+  const idx = session.currentIndex;
+  const w = session.words[idx];
+  const errorEl = $('editWordError');
+  errorEl.textContent = '';
+
+  const en = $('editWordEn').value.trim();
+  const ja = $('editWordJa').value.trim();
+  const aiNote = $('editWordAiNote').value.trim();
+  if (!en || !ja) {
+    errorEl.textContent = '英語と日本語の両方を入力してください。';
+    return;
+  }
+
+  try {
+    const { item } = await apiFetch(`/api/words/${encodeURIComponent(w.id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ en, ja, ai_note: aiNote }),
+    });
+
+    // セッション・グローバルキャッシュ双方に反映し、画面に即座に反映する。
+    session.words[idx] = { ...w, en: item.en, ja: item.ja, ai_note: item.ai_note };
+    saveSession(session);
+    const cached = words.find(x => x.id === w.id);
+    if (cached) {
+      cached.en = item.en;
+      cached.ja = item.ja;
+      cached.ai_note = item.ai_note;
+    }
+
+    closeEditWord();
+    renderQuiz();
+  } catch (err) {
+    errorEl.textContent = '保存に失敗しました: ' + err.message;
+  }
 }
 
 // ---------- 簡易Markdownレンダリング ----------
@@ -1151,6 +1215,9 @@ function bindEvents() {
   $('saveAiNoteBtn').addEventListener('click', saveAiNote);
   $('correctBtn').addEventListener('click', () => judge(true));
   $('wrongBtn').addEventListener('click', () => judge(false));
+  $('editWordBtn').addEventListener('click', openEditWord);
+  $('editWordCancelBtn').addEventListener('click', closeEditWord);
+  $('editWordSaveBtn').addEventListener('click', saveEditWord);
 
   $('customStartBtn').addEventListener('click', () => {
     if ($('customStartBtn').disabled) return;
