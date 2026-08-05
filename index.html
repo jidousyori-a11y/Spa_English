@@ -15,7 +15,7 @@
 
   <!-- ホーム画面 -->
   <section id="home" class="screen">
-    <h1>英単語クイズ<br><small style="font-size:13px;color:#64748b;">Supabase テスト版</small></h1>
+    <h1>英単語クイズ</h1>
 
     <div class="feature-nav">
       <button type="button" id="goWaeiBtn" class="link-btn">→ 和英表現練習</button>
@@ -36,8 +36,13 @@
       <button class="mode-btn" data-mode="bottom100">下から100単語からランダムに15個</button>
     </div>
 
-    <!-- マーカー(D列)ごとのクイズモード。存在するマーカーの分だけJSが動的に生成する -->
-    <div class="mode-buttons" id="markerButtons"></div>
+    <!-- マーカー(D列)付き単語のテスト。存在するマーカーの分だけチェックボックスをJSが動的に生成する -->
+    <div class="marker-filter-box" id="markerFilterBox" hidden>
+      <div class="marker-filter-label">マーカー付き単語テスト（対象マーカーを選択・複数可）</div>
+      <div class="marker-checklist" id="markerChecklist"></div>
+      <button type="button" id="markerTestStartBtn" class="mode-btn">マーカー付き単語テスト</button>
+      <p id="markerFilterError" class="error"></p>
+    </div>
 
     <div class="custom-box">
       <div class="custom-row">

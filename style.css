@@ -85,6 +85,37 @@ h2 {
   margin-bottom: 32px;
 }
 
+.marker-filter-box {
+  background: #fff;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 32px;
+}
+
+.marker-filter-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 10px;
+}
+
+.marker-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin-bottom: 14px;
+}
+
+.marker-checklist-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #334155;
+  cursor: pointer;
+}
+
 .mode-btn {
   background: #2563eb;
   color: white;

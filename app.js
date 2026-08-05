@@ -367,9 +367,10 @@ function pickWords(allWords, mode, latestAddedCount) {
   let label;
   let quizSize = QUIZ_SIZE;
   if (mode.startsWith('marker:')) {
-    const marker = mode.slice('marker:'.length);
-    pool = allWords.filter(w => w.marker === marker);
-    label = `${MARKER_LABELS[marker] || marker}単語`;
+    const markerList = mode.slice('marker:'.length).split(',').filter(Boolean);
+    const markerSet = new Set(markerList);
+    pool = allWords.filter(w => w.marker && markerSet.has(w.marker));
+    label = `マーカー付き単語（${markerList.map(m => MARKER_LABELS[m] || m).join('・')}）`;
     const n = Math.min(quizSize, pool.length);
     return { words: shuffle(pool).slice(0, n), label };
   }
@@ -755,26 +756,47 @@ function waeiNextRound() {
 // ---------- Home rendering ----------
 
 function renderMarkerButtons() {
-  const container = $('markerButtons');
+  const box = $('markerFilterBox');
+  const container = $('markerChecklist');
   container.innerHTML = '';
+  $('markerFilterError').textContent = '';
   const markers = [...new Set(words.map(w => w.marker).filter(Boolean))].sort();
+
+  if (markers.length === 0) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+
   for (const marker of markers) {
     const count = words.filter(w => w.marker === marker).length;
-    const btn = document.createElement('button');
-    btn.className = 'mode-btn';
-    btn.dataset.mode = `marker:${marker}`;
-    btn.textContent = `${MARKER_LABELS[marker] || marker}単語のみ（${count}個から）`;
-    btn.addEventListener('click', () => {
-      if (btn.disabled) return;
-      const existing = loadSession();
-      if (existing && existing.currentIndex < existing.words.length) {
-        if (!confirm('進行中のクイズがあります。新しく始めると進捗は失われます。続けますか？')) return;
-      }
-      clearSession();
-      startNewSession(btn.dataset.mode);
-    });
-    container.appendChild(btn);
+    const label = document.createElement('label');
+    label.className = 'marker-checklist-item';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = marker;
+    checkbox.className = 'marker-checkbox';
+    checkbox.checked = true;
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(`${MARKER_LABELS[marker] || marker}（${count}個）`));
+    container.appendChild(label);
   }
+}
+
+function startMarkerTest() {
+  const checked = [...document.querySelectorAll('.marker-checkbox:checked')].map(c => c.value);
+  const errorEl = $('markerFilterError');
+  if (checked.length === 0) {
+    errorEl.textContent = '対象マーカーを1つ以上選択してください。';
+    return;
+  }
+  errorEl.textContent = '';
+  const existing = loadSession();
+  if (existing && existing.currentIndex < existing.words.length) {
+    if (!confirm('進行中のクイズがあります。新しく始めると進捗は失われます。続けますか？')) return;
+  }
+  clearSession();
+  startNewSession(`marker:${checked.join(',')}`);
 }
 
 function renderHome() {
@@ -1282,6 +1304,8 @@ function bindEvents() {
       startNewSession(mode);
     });
   });
+
+  $('markerTestStartBtn').addEventListener('click', startMarkerTest);
 
   $('resumeBtn').addEventListener('click', () => {
     const s = loadSession();
