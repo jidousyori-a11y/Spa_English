@@ -18,6 +18,14 @@ const PORT = process.env.PORT || 10509;
 const ROOT = __dirname;
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const SUPABASE_URL = 'https://owuwhpfybfozzlovmehl.supabase.co';
+const WORD_NOTE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-note.md');
+
+// プロンプトはコードから切り離し、prompts/word-note.md から都度読み込む
+// (サーバー再起動なしで文面を調整できる)。
+function renderWordNotePrompt(vars) {
+  const template = fs.readFileSync(WORD_NOTE_PROMPT_FILE, 'utf-8');
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -362,13 +370,14 @@ async function handleGeminiExamples(req, res) {
     return;
   }
 
-  const prompt =
-    `英単語「${en}」（日本語訳: 「${ja}」）について、日本語で簡潔に回答してください。\n` +
-    `1. 発音記号（IPA）と、カタカナで表現するなら何に近いかを示してください。カタカナ表記のうち、アクセント（強く読む部分）に当たる箇所は **太字** にしてください。\n` +
-    `2. 品詞分類を、あてはまるものをすべて列挙してください（例: 名詞 / 自動詞 / 他動詞 / 形容詞 / 副詞 など）。特に動詞の場合は、自動詞・他動詞のどちらか、あるいは両方の用法があるかを明確にしてください。複数の品詞・用法がある場合、実際によく使われるのはどれかという傾向があれば、その旨も記載してください（例:「主に他動詞として使われる」等）。特に補足すべき傾向がなければその旨は省略して構いません。\n` +
-    `3. この単語を使った例文を3つ、英語とその日本語訳のペアで挙げてください。\n` +
-    `4. 日本語訳「${ja}」だけでは伝わりにくいニュアンスや使い分けがあれば、2〜3行で補足してください。特になければ「特になし」としてください。\n` +
-    `見出しや箇条書きを使い、読みやすく整形してください。`;
+  let prompt;
+  try {
+    prompt = renderWordNotePrompt({ en, ja });
+  } catch (e) {
+    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'プロンプトファイルの読み込みに失敗しました: ' + e.message }));
+    return;
+  }
 
   try {
     const apiRes = await fetch(
