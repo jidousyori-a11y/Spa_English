@@ -274,7 +274,7 @@ async function loadWordsTablePage(page) {
     // データ番号(row)の降順 = 直近に登録されたものが1ページ目の先頭に来る。
     const { data, error, count } = await sb
       .from('words')
-      .select('id, row, en, ja, marker, ai_note', { count: 'exact' })
+      .select('id, row, en, ja, marker', { count: 'exact' })
       .order('row', { ascending: false })
       .range(from, to);
     if (error) throw error;
@@ -289,10 +289,9 @@ async function loadWordsTablePage(page) {
     tbody.innerHTML = data.map(w => `
       <tr>
         <td>${w.row ?? ''}</td>
-        <td>${escapeHtml(w.en)}</td>
+        <td class="wrap">${escapeHtml(w.en)}</td>
         <td class="wrap">${escapeHtml(w.ja)}</td>
         <td>${escapeHtml(w.marker)}</td>
-        <td class="wrap">${escapeHtml(w.ai_note)}</td>
       </tr>
     `).join('');
 

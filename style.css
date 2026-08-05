@@ -531,23 +531,38 @@ h2 {
 
 .data-table {
   width: 100%;
+  min-width: 640px;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: 14px;
   white-space: nowrap;
 }
+.data-table col.col-no { width: 64px; }
+.data-table col.col-en { width: 30%; }
+.data-table col.col-ja { width: 48%; }
+.data-table col.col-marker { width: 90px; }
 .data-table th, .data-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid #e2e8f0;
+  border: 1px solid #cbd5e1;
   text-align: left;
+  vertical-align: top;
 }
 .data-table th {
-  background: #f1f5f9;
+  background: #dbeafe;
+  color: #1e3a8a;
+  font-weight: 700;
   position: sticky;
   top: 0;
 }
+.data-table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+.data-table tbody tr:hover {
+  background: #eff6ff;
+}
 .data-table td.wrap {
   white-space: normal;
-  max-width: 320px;
+  word-break: break-word;
 }
 
 .pager {
