@@ -131,6 +131,17 @@ async function handleWordsImport(req, res) {
     return;
   }
   try {
+    // rowが未指定の行(Excel由来ではない直接登録など)には、既存の最大rowに続く連番を自動採番する。
+    if (clean.some(r => r.row === null)) {
+      const maxRowData = await supabaseServiceRequest('/words?select=row&order=row.desc.nullslast&limit=1');
+      let nextRow = (maxRowData[0] && maxRowData[0].row ? maxRowData[0].row : 0) + 1;
+      for (const r of clean) {
+        if (r.row === null) {
+          r.row = nextRow;
+          nextRow += 1;
+        }
+      }
+    }
     const data = await supabaseServiceRequest('/words', {
       method: 'POST',
       body: JSON.stringify(clean),

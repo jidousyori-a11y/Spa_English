@@ -23,6 +23,7 @@ const screens = {
   waeiResult: $('waeiResult'),
   notes: $('notes'),
   wordsRegister: $('wordsRegister'),
+  wordsTableView: $('wordsTableView'),
 };
 
 function showScreen(name) {
@@ -175,8 +176,17 @@ async function importExcelFile(file) {
 
 // ---------- 単語の直接登録（一括貼り付け。ローカルサーバー経由でのみ書き込み可能） ----------
 // 1行1件、"English :: 日本語" 形式。":: " がデリミタ、"##" 以降はマーカー。
-// Excel由来ではないため row は付けない(null のままSupabaseに保存され、将来のExcel同期と
-// 行番号で衝突することがない)。
+// row は指定せずサーバーに送る。server.js側で、既存の最大rowに続く連番を自動採番する
+// (2026-08-05〜。以前はnullのままにしていたが、登録番号を連番で振ってほしいという要望により変更)。
+// ただしExcel側の "Wrk"シートNo.が将来この番号域まで伸びた場合、english_spabase_updateスキルの
+// row一致判定と衝突しうる点には注意。
+
+// Excel由来のデータに残っていた「消し忘れ」の編集メモ。日本語欄からは常に取り除く。
+// （##スペル修正有）/ ##（スペル修正有） の両表記ゆれに対応。
+const SPELL_FIX_MARKER_RE = /(?:##[（(]スペル修正有[）)]|[（(]##スペル修正有[）)])/g;
+function stripSpellFixMarker(s) {
+  return (s || '').replace(SPELL_FIX_MARKER_RE, '').trim();
+}
 
 function parseBulkWordsInput(text) {
   const rows = [];
@@ -191,7 +201,8 @@ function parseBulkWordsInput(text) {
       return;
     }
     const en = line.slice(0, delimIdx).trim();
-    let rest = line.slice(delimIdx + 2).trim();
+    // ##（スペル修正有）等は、これより後ろの##をマーカー区切りと誤認しないよう先に除去する。
+    let rest = stripSpellFixMarker(line.slice(delimIdx + 2).trim());
     let marker = null;
     const markerIdx = rest.indexOf('##');
     if (markerIdx !== -1) {
@@ -233,6 +244,82 @@ async function submitBulkWordsRegister() {
   } catch (err) {
     errorEl.textContent = '登録に失敗しました: ' + err.message;
   }
+}
+
+// ---------- 全データ閲覧（ページング。現在ページ分だけを都度Supabaseから取得） ----------
+// 起動時に全件読み込み済みの`words`配列には依存せず、このテーブルはページ単位で
+// 直接Supabaseへ問い合わせる(件数が増えても画面を開く時間・メモリが一定に保たれる)。
+
+const WORDS_TABLE_PAGE_SIZE = 100;
+let wordsTablePage = 0;
+let wordsTableTotalPages = 1;
+
+async function loadWordsTablePage(page) {
+  const tbody = $('wordsTableBody');
+  const errorEl = $('wordsTableError');
+  const countEl = $('wordsTableCount');
+  const pageLabel = $('wordsTablePageLabel');
+  const prevBtn = $('wordsTablePrevBtn');
+  const nextBtn = $('wordsTableNextBtn');
+  const pageInput = $('wordsTablePageInput');
+
+  errorEl.textContent = '';
+  prevBtn.disabled = true;
+  nextBtn.disabled = true;
+
+  const from = page * WORDS_TABLE_PAGE_SIZE;
+  const to = from + WORDS_TABLE_PAGE_SIZE - 1;
+
+  try {
+    // データ番号(row)の降順 = 直近に登録されたものが1ページ目の先頭に来る。
+    const { data, error, count } = await sb
+      .from('words')
+      .select('id, row, en, ja, marker, ai_note', { count: 'exact' })
+      .order('row', { ascending: false })
+      .range(from, to);
+    if (error) throw error;
+
+    wordsTablePage = page;
+    wordsTableTotalPages = Math.max(1, Math.ceil((count || 0) / WORDS_TABLE_PAGE_SIZE));
+    countEl.textContent = `全 ${(count || 0).toLocaleString()} 件`;
+    pageLabel.textContent = `${page + 1} / ${wordsTableTotalPages} ページ`;
+    pageInput.placeholder = String(page + 1);
+    pageInput.max = String(wordsTableTotalPages);
+
+    tbody.innerHTML = data.map(w => `
+      <tr>
+        <td>${w.row ?? ''}</td>
+        <td>${escapeHtml(w.en)}</td>
+        <td class="wrap">${escapeHtml(w.ja)}</td>
+        <td>${escapeHtml(w.marker)}</td>
+        <td class="wrap">${escapeHtml(w.ai_note)}</td>
+      </tr>
+    `).join('');
+
+    prevBtn.disabled = page <= 0;
+    nextBtn.disabled = page >= wordsTableTotalPages - 1;
+  } catch (err) {
+    errorEl.textContent = '読み込みに失敗しました: ' + err.message;
+    tbody.innerHTML = '';
+  }
+}
+
+function jumpToWordsTablePage() {
+  const input = $('wordsTablePageInput');
+  const errorEl = $('wordsTableError');
+  const n = parseInt(input.value, 10);
+  if (!n || n < 1 || n > wordsTableTotalPages) {
+    errorEl.textContent = `1〜${wordsTableTotalPages}の範囲でページ番号を入力してください。`;
+    return;
+  }
+  input.value = '';
+  loadWordsTablePage(n - 1);
+}
+
+function renderWordsTableView() {
+  showScreen('wordsTableView');
+  $('wordsTablePageInput').value = '';
+  loadWordsTablePage(0);
 }
 
 // ---------- CSVダウンロード（バックアップ。anon読み取りのみで完結し、ローカルサーバー不要） ----------
@@ -1271,6 +1358,21 @@ function bindEvents() {
   });
   $('wordsRegisterBackBtn').addEventListener('click', () => renderHome());
   $('wordsRegisterBulkSaveBtn').addEventListener('click', submitBulkWordsRegister);
+
+  // ---- 全データ閲覧 ----
+
+  $('goWordsTableBtn').addEventListener('click', () => renderWordsTableView());
+  $('wordsTableBackBtn').addEventListener('click', () => renderHome());
+  $('wordsTablePrevBtn').addEventListener('click', () => {
+    if (wordsTablePage > 0) loadWordsTablePage(wordsTablePage - 1);
+  });
+  $('wordsTableNextBtn').addEventListener('click', () => {
+    loadWordsTablePage(wordsTablePage + 1);
+  });
+  $('wordsTablePageJumpBtn').addEventListener('click', jumpToWordsTablePage);
+  $('wordsTablePageInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') jumpToWordsTablePage();
+  });
 
   // ---- 更改メモ ----
 

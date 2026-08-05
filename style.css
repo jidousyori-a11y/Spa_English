@@ -522,6 +522,42 @@ h2 {
   margin: 24px 0;
 }
 
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.data-table th, .data-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e2e8f0;
+  text-align: left;
+}
+.data-table th {
+  background: #f1f5f9;
+  position: sticky;
+  top: 0;
+}
+.data-table td.wrap {
+  white-space: normal;
+  max-width: 320px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 8px;
+}
+
 /* ===== PC向け調整(640px以上) ===== */
 
 @media (min-width: 640px) {

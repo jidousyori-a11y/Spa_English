@@ -20,6 +20,7 @@
     <div class="feature-nav">
       <button type="button" id="goWaeiBtn" class="link-btn">→ 和英表現練習</button>
       <button type="button" id="goWordsRegisterBtn" class="link-btn">➕ 単語を直接登録</button>
+      <button type="button" id="goWordsTableBtn" class="link-btn">📋 全データ閲覧</button>
       <button type="button" id="goNotesBtn" class="link-btn">📝 更改メモ</button>
     </div>
 
@@ -161,6 +162,40 @@
       </div>
       <p id="wordsRegisterBulkError" class="error"></p>
       <p id="wordsRegisterBulkStatus" class="muted"></p>
+    </div>
+  </section>
+
+  <!-- 全データ閲覧（ページング。現在ページ分だけをSupabaseから都度取得） -->
+  <section id="wordsTableView" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="wordsTableBackBtn" class="link-btn">← 戻る</button>
+      <h2 style="margin:0;">全データ閲覧</h2>
+      <span></span>
+    </header>
+    <p id="wordsTableCount" class="muted"></p>
+    <div class="table-scroll">
+      <table id="wordsTable" class="data-table">
+        <thead>
+          <tr>
+            <th>No.</th>
+            <th>English</th>
+            <th>日本語</th>
+            <th>マーカー</th>
+            <th>AI補足</th>
+          </tr>
+        </thead>
+        <tbody id="wordsTableBody"></tbody>
+      </table>
+    </div>
+    <p id="wordsTableError" class="error"></p>
+    <div class="pager">
+      <button type="button" id="wordsTablePrevBtn" class="secondary">← 前へ</button>
+      <span id="wordsTablePageLabel"></span>
+      <button type="button" id="wordsTableNextBtn" class="secondary">次へ →</button>
+      <span class="pager-jump">
+        <input type="number" id="wordsTablePageInput" class="custom-input" min="1" style="width:70px;">
+        <button type="button" id="wordsTablePageJumpBtn" class="secondary">ページへ移動</button>
+      </span>
     </div>
   </section>
 
