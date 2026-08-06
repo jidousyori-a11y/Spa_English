@@ -188,7 +188,7 @@
         </colgroup>
         <thead>
           <tr>
-            <th>No.</th>
+            <th>No.（クリックで編集）</th>
             <th>English</th>
             <th>日本語</th>
             <th>マーカー</th>
@@ -206,6 +206,32 @@
         <input type="number" id="wordsTablePageInput" class="custom-input" min="1" style="width:70px;">
         <button type="button" id="wordsTablePageJumpBtn" class="secondary">ページへ移動</button>
       </span>
+    </div>
+  </section>
+
+  <!-- 単語編集（全データ閲覧のNo.クリックから遷移。ローカルサーバー起動時のみ保存可能） -->
+  <section id="wordEditView" class="screen" hidden>
+    <header class="quiz-header">
+      <button id="wordEditBackBtn" class="link-btn">← 全データ閲覧へ戻る</button>
+      <h2 style="margin:0;">単語を編集</h2>
+      <span></span>
+    </header>
+    <p id="wordEditRowLabel" class="muted"></p>
+    <div class="waei-form-box">
+      <label class="waei-label" for="wordEditEn">English</label>
+      <input type="text" id="wordEditEn" class="waei-textarea">
+      <label class="waei-label" for="wordEditJa">日本語</label>
+      <input type="text" id="wordEditJa" class="waei-textarea">
+      <label class="waei-label" for="wordEditMarker">マーカー</label>
+      <input type="text" id="wordEditMarker" class="waei-textarea">
+      <label class="waei-label" for="wordEditAiNote">AI補足（自由に編集・追記・一部削除できます）</label>
+      <textarea id="wordEditAiNote" class="waei-textarea" rows="8"></textarea>
+      <div class="ai-key-actions">
+        <button type="button" id="wordEditSaveBtn" class="primary" style="flex:1;">保存する</button>
+        <button type="button" id="wordEditCancelBtn" class="secondary" style="flex:1;">キャンセル</button>
+      </div>
+      <p id="wordEditError" class="error"></p>
+      <p id="wordEditStatus" class="muted"></p>
     </div>
   </section>
 

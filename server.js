@@ -232,6 +232,9 @@ async function handleWordsUpdate(req, res, id) {
   if (typeof payload.ai_note === 'string') {
     body.ai_note = payload.ai_note.trim() || null;
   }
+  if (typeof payload.marker === 'string') {
+    body.marker = payload.marker.trim() || null;
+  }
   try {
     const data = await supabaseServiceRequest(`/words?id=eq.${encodeURIComponent(id)}`, {
       method: 'PATCH',

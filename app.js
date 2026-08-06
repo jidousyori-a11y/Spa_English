@@ -24,6 +24,7 @@ const screens = {
   notes: $('notes'),
   wordsRegister: $('wordsRegister'),
   wordsTableView: $('wordsTableView'),
+  wordEditView: $('wordEditView'),
 };
 
 function showScreen(name) {
@@ -288,7 +289,7 @@ async function loadWordsTablePage(page) {
 
     tbody.innerHTML = data.map(w => `
       <tr>
-        <td>${w.row ?? ''}</td>
+        <td><button type="button" class="row-edit-link" data-id="${w.id}">${w.row ?? ''}</button></td>
         <td class="wrap">${escapeHtml(w.en)}</td>
         <td class="wrap">${escapeHtml(w.ja)}</td>
         <td>${escapeHtml(w.marker)}</td>
@@ -319,6 +320,73 @@ function renderWordsTableView() {
   showScreen('wordsTableView');
   $('wordsTablePageInput').value = '';
   loadWordsTablePage(0);
+}
+
+// ---------- 単語編集（全データ閲覧のNo.クリックから。ローカルサーバー経由でのみ保存可能） ----------
+
+let wordEditId = null;
+
+async function openWordEditFromTable(id) {
+  wordEditId = id;
+  const errorEl = $('wordEditError');
+  const statusEl = $('wordEditStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+  $('wordEditRowLabel').textContent = '読み込み中…';
+  showScreen('wordEditView');
+
+  try {
+    const { data, error } = await sb
+      .from('words')
+      .select('id, row, en, ja, marker, ai_note')
+      .eq('id', id)
+      .single();
+    if (error) throw error;
+
+    $('wordEditRowLabel').textContent = `# ${data.row ?? ''}`;
+    $('wordEditEn').value = data.en || '';
+    $('wordEditJa').value = data.ja || '';
+    $('wordEditMarker').value = data.marker || '';
+    $('wordEditAiNote').value = data.ai_note || '';
+  } catch (err) {
+    $('wordEditRowLabel').textContent = '';
+    errorEl.textContent = '読み込みに失敗しました: ' + err.message;
+  }
+}
+
+async function saveWordEditFromTable() {
+  const errorEl = $('wordEditError');
+  const statusEl = $('wordEditStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+
+  const en = $('wordEditEn').value.trim();
+  const ja = $('wordEditJa').value.trim();
+  const marker = $('wordEditMarker').value.trim();
+  const aiNote = $('wordEditAiNote').value.trim();
+  if (!en || !ja) {
+    errorEl.textContent = '英語と日本語の両方を入力してください。';
+    return;
+  }
+
+  try {
+    await apiFetch(`/api/words/${encodeURIComponent(wordEditId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ en, ja, marker, ai_note: aiNote }),
+    });
+    const cached = words.find(x => x.id === wordEditId);
+    if (cached) {
+      cached.en = en;
+      cached.ja = ja;
+      cached.marker = marker || null;
+      cached.ai_note = aiNote || null;
+    }
+    statusEl.textContent = '✅ 保存しました。';
+    showScreen('wordsTableView');
+    await loadWordsTablePage(wordsTablePage);
+  } catch (err) {
+    errorEl.textContent = '保存に失敗しました: ' + err.message;
+  }
 }
 
 // ---------- CSVダウンロード（バックアップ。anon読み取りのみで完結し、ローカルサーバー不要） ----------
@@ -1396,6 +1464,21 @@ function bindEvents() {
   $('wordsTablePageInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') jumpToWordsTablePage();
   });
+  // 行は都度innerHTMLで再生成されるため、tbody自体にイベント委任する。
+  $('wordsTableBody').addEventListener('click', (e) => {
+    const btn = e.target.closest('.row-edit-link');
+    if (btn) openWordEditFromTable(Number(btn.dataset.id));
+  });
+
+  $('wordEditBackBtn').addEventListener('click', () => {
+    showScreen('wordsTableView');
+    loadWordsTablePage(wordsTablePage);
+  });
+  $('wordEditCancelBtn').addEventListener('click', () => {
+    showScreen('wordsTableView');
+    loadWordsTablePage(wordsTablePage);
+  });
+  $('wordEditSaveBtn').addEventListener('click', saveWordEditFromTable);
 
   // ---- 更改メモ ----
 

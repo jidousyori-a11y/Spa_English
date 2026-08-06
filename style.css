@@ -595,6 +595,19 @@ h2 {
   white-space: normal;
   word-break: break-word;
 }
+.row-edit-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.row-edit-link:hover {
+  color: #1d4ed8;
+}
 
 .pager {
   display: flex;
