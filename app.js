@@ -1209,11 +1209,12 @@ async function requestAiExamples() {
     btn.hidden = true;
     lastAiNoteWordId = w.id;
     lastAiNoteText = text;
+    // この時点でこの単語にはまだAI補足が保存されていないので、手動保存を待たず即座に保存する。
     const saveBtn = $('saveAiNoteBtn');
-    saveBtn.hidden = false;
+    saveBtn.hidden = true;
     saveBtn.disabled = false;
     saveBtn.textContent = '💾 この補足を保存する';
-    $('saveAiNoteStatus').hidden = true;
+    await saveAiNote();
   } catch (err) {
     const hint = key
       ? '（保存されているAPIキーが正しいか、ホーム画面の「AI機能のAPIキー設定」から確認してください）'
@@ -1255,6 +1256,7 @@ async function saveAiNote() {
     btn.hidden = true;
   } catch (err) {
     status.textContent = '保存に失敗しました: ' + err.message;
+    btn.hidden = false;
     btn.disabled = false;
   }
 }
