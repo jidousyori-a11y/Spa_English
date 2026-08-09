@@ -157,13 +157,17 @@
       <h2 style="margin:0;">単語を直接登録</h2>
       <span></span>
     </header>
-    <p class="muted">英単語・フレーズをAIに和訳してもらい、選んだものだけをSupabaseに直接登録します（ローカルサーバー起動時のみ）。</p>
+    <p class="muted" id="wordsRegisterModeDesc">英単語・フレーズをAIに和訳してもらい、選んだものだけをSupabaseに直接登録します（ローカルサーバー起動時のみ）。</p>
+    <p>
+      <button type="button" id="wordsRegisterModeToggleBtn" class="link-btn">✏️ 自分で和訳を指定して登録</button>
+    </p>
 
     <div class="waei-form-box">
-      <label class="waei-label" for="wordsRegisterInput1">1行1件、英単語または英語表現を貼り付けてください。</label>
+      <label class="waei-label" for="wordsRegisterInput1" id="wordsRegisterInput1Label">1行1件、英単語または英語表現を貼り付けてください。</label>
       <textarea id="wordsRegisterInput1" class="waei-textarea" rows="8" placeholder="sophistry&#10;have an inkling"></textarea>
       <div class="ai-key-actions">
         <button type="button" id="wordsRegisterAiTranslateBtn" class="primary" style="flex:1;">🤖 AIに和訳を依頼</button>
+        <button type="button" id="wordsRegisterManualSaveBtn" class="primary" style="flex:1;" hidden>一括登録する</button>
       </div>
       <p id="wordsRegisterBulkError" class="error"></p>
       <p id="wordsRegisterBulkStatus" class="muted"></p>

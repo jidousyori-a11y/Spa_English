@@ -194,7 +194,8 @@ function stripSpellFixMarker(s) {
   return (s || '').replace(SPELL_FIX_MARKER_RE, '').trim();
 }
 
-// AIの和訳応答をパースする（"##マーカー名" が残っていれば拾うが、通常のAI応答には現れない）。
+// "English :: 日本語" 形式のテキストをパースする。AIの和訳応答（##マーカー名は通常現れない）にも、
+// 手動指定モードでの "English :: 日本語##マーカー名" 直接入力にも共通して使う。
 function parseBulkWordsInput(text) {
   const rows = [];
   const errorLines = [];
@@ -231,6 +232,66 @@ function parseBulkWordsInput(text) {
 // 未選択（チェックを外した）ものは入力欄1に英語のみ戻す。
 
 let registerCandidates = []; // AI応答をパースした候補 [{en, ja, marker}]
+
+// デフォルトはAI和訳依頼方式('ai')。改定前の "English :: 日本語##マーカー" を
+// 自分で直接指定する方式('manual')にも、ボタンでいつでも切り替えられるようにする。
+let wordsRegisterMode = 'ai';
+
+function setWordsRegisterMode(mode) {
+  wordsRegisterMode = mode;
+  const isManual = mode === 'manual';
+
+  $('wordsRegisterModeDesc').textContent = isManual
+    ? '"English :: 日本語" の形式（行末に "##マーカー名" を付けるとマーカーも設定）で、自分で和訳を指定してSupabaseに直接登録します（ローカルサーバー起動時のみ）。'
+    : '英単語・フレーズをAIに和訳してもらい、選んだものだけをSupabaseに直接登録します（ローカルサーバー起動時のみ）。';
+  $('wordsRegisterModeToggleBtn').textContent = isManual
+    ? '🤖 AIに和訳を依頼する方式に切替'
+    : '✏️ 自分で和訳を指定して登録';
+  $('wordsRegisterInput1Label').textContent = isManual
+    ? '1行1件、`English :: 日本語` 形式で貼り付けてください。行末に `##マーカー名` を付けるとマーカーも設定されます。'
+    : '1行1件、英単語または英語表現を貼り付けてください。';
+  $('wordsRegisterInput1').placeholder = isManual
+    ? 'sophistry :: 詭弁；へりくつ\nhave an inkling :: うすうす感づいている##idiom'
+    : 'sophistry\nhave an inkling';
+
+  $('wordsRegisterAiTranslateBtn').hidden = isManual;
+  $('wordsRegisterManualSaveBtn').hidden = !isManual;
+  $('wordsRegisterCandidateBox').hidden = true;
+  registerCandidates = [];
+  $('wordsRegisterBulkError').textContent = '';
+  $('wordsRegisterBulkStatus').textContent = '';
+}
+
+async function submitManualWordsRegister() {
+  const input = $('wordsRegisterInput1');
+  const errorEl = $('wordsRegisterBulkError');
+  const statusEl = $('wordsRegisterBulkStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+
+  const { rows, errorLines } = parseBulkWordsInput(input.value);
+  if (rows.length === 0) {
+    errorEl.textContent = '登録できる行がありませんでした（"English :: 日本語" の形式で入力してください）。';
+    return;
+  }
+
+  const btn = $('wordsRegisterManualSaveBtn');
+  btn.disabled = true;
+  try {
+    const data = await apiFetch('/api/words/import', { method: 'POST', body: JSON.stringify({ rows }) });
+    await refreshWords();
+    let msg = `✅ ${data.inserted}件登録しました。`;
+    if (errorLines.length) {
+      msg += ` （形式が不正で無視した行: ${errorLines.join(', ')}行目）`;
+    }
+    statusEl.textContent = msg;
+    input.value = '';
+  } catch (err) {
+    errorEl.textContent = '登録に失敗しました: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 // ブラウザから直接Gemini APIを呼ぶ経路（サーバーの prompts/word-translate.md と同内容を保持）。
 function buildTranslatePrompt(wordListText) {
@@ -1586,15 +1647,16 @@ function bindEvents() {
 
   $('goWordsRegisterBtn').addEventListener('click', () => {
     $('wordsRegisterInput1').value = '';
-    $('wordsRegisterBulkError').textContent = '';
-    $('wordsRegisterBulkStatus').textContent = '';
-    $('wordsRegisterCandidateBox').hidden = true;
-    registerCandidates = [];
+    setWordsRegisterMode('ai'); // 画面を開くたびデフォルト(AI和訳依頼)に戻す
     showScreen('wordsRegister');
   });
   $('wordsRegisterBackBtn').addEventListener('click', () => renderHome());
+  $('wordsRegisterModeToggleBtn').addEventListener('click', () => {
+    setWordsRegisterMode(wordsRegisterMode === 'ai' ? 'manual' : 'ai');
+  });
   $('wordsRegisterAiTranslateBtn').addEventListener('click', requestAiTranslateBulk);
   $('wordsRegisterSubmitSelectedBtn').addEventListener('click', submitSelectedRegisterCandidates);
+  $('wordsRegisterManualSaveBtn').addEventListener('click', submitManualWordsRegister);
 
   // ---- 全データ閲覧 ----
 
