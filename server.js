@@ -19,12 +19,19 @@ const ROOT = __dirname;
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const SUPABASE_URL = 'https://owuwhpfybfozzlovmehl.supabase.co';
 const WORD_NOTE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-note.md');
+const WORD_TRANSLATE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-translate.md');
 
-// プロンプトはコードから切り離し、prompts/word-note.md から都度読み込む
+// プロンプトはコードから切り離し、prompts/*.md から都度読み込む
 // (サーバー再起動なしで文面を調整できる)。
-function renderWordNotePrompt(vars) {
-  const template = fs.readFileSync(WORD_NOTE_PROMPT_FILE, 'utf-8');
+function renderPromptFile(file, vars) {
+  const template = fs.readFileSync(file, 'utf-8');
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
+}
+function renderWordNotePrompt(vars) {
+  return renderPromptFile(WORD_NOTE_PROMPT_FILE, vars);
+}
+function renderWordTranslatePrompt(vars) {
+  return renderPromptFile(WORD_TRANSLATE_PROMPT_FILE, vars);
 }
 
 const MIME = {
@@ -416,6 +423,74 @@ async function handleGeminiExamples(req, res) {
   }
 }
 
+// POST /api/gemini-translate  { words: "英単語A\n英単語B\n..." } → "英語 :: 日本語" 形式のテキストを返す
+async function handleGeminiTranslate(req, res) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: '環境変数 GEMINI_API_KEY が設定されていません。' }));
+    return;
+  }
+
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'リクエストの形式が不正です。' }));
+    return;
+  }
+
+  const words = (payload.words || '').toString().trim();
+  if (!words) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: '単語・フレーズのリストが空です。' }));
+    return;
+  }
+
+  let prompt;
+  try {
+    prompt = renderWordTranslatePrompt({ words });
+  } catch (e) {
+    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'プロンプトファイルの読み込みに失敗しました: ' + e.message }));
+    return;
+  }
+
+  try {
+    const apiRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+      }
+    );
+
+    const data = await apiRes.json();
+
+    if (!apiRes.ok) {
+      const message = data?.error?.message || `Gemini API エラー (HTTP ${apiRes.status})`;
+      res.writeHead(apiRes.status, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: message }));
+      return;
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+    if (!text) {
+      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'Gemini から有効な応答が得られませんでした。' }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ text }));
+  } catch (e) {
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'Gemini API への接続に失敗しました: ' + e.message }));
+  }
+}
+
 const server = http.createServer((req, res) => {
   const urlPath = req.url.split('?')[0];
   const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
@@ -425,6 +500,10 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
     handleGeminiExamples(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/gemini-translate') {
+    handleGeminiTranslate(req, res);
     return;
   }
   if (req.method === 'POST' && urlPath === '/api/words/import') {

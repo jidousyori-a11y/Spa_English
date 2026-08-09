@@ -27,7 +27,12 @@ const screens = {
   wordEditView: $('wordEditView'),
 };
 
+// 初期表示は home（静的HTML側でhiddenなし）だが、ここでは「ユーザーが明示的に
+// 画面遷移したか」を追跡するためだけに使う（下記init()参照）。
+let currentScreenName = null;
+
 function showScreen(name) {
+  currentScreenName = name;
   for (const k of Object.keys(screens)) {
     screens[k].hidden = (k !== name);
   }
@@ -175,20 +180,21 @@ async function importExcelFile(file) {
   return { addedCount: toInsert.length, totalCount: words.length };
 }
 
-// ---------- 単語の直接登録（一括貼り付け。ローカルサーバー経由でのみ書き込み可能） ----------
-// 1行1件、"English :: 日本語" 形式。":: " がデリミタ、"##" 以降はマーカー。
+// ---------- 単語の直接登録（AI和訳→選択登録。ローカルサーバー経由でのみ書き込み可能） ----------
 // row は指定せずサーバーに送る。server.js側で、既存の最大rowに続く連番を自動採番する
 // (2026-08-05〜。以前はnullのままにしていたが、登録番号を連番で振ってほしいという要望により変更)。
 // ただしExcel側の "Wrk"シートNo.が将来この番号域まで伸びた場合、english_spabase_updateスキルの
 // row一致判定と衝突しうる点には注意。
 
-// Excel由来のデータに残っていた「消し忘れ」の編集メモ。日本語欄からは常に取り除く。
+// AIの和訳応答は "English :: 日本語" 形式（1行1件、":: " がデリミタ）。
+// スペル修正があった場合のみ行末に「（##スペル修正有）」が付くのでそれを取り除く。
 // （##スペル修正有）/ ##（スペル修正有） の両表記ゆれに対応。
 const SPELL_FIX_MARKER_RE = /(?:##[（(]スペル修正有[）)]|[（(]##スペル修正有[）)])/g;
 function stripSpellFixMarker(s) {
   return (s || '').replace(SPELL_FIX_MARKER_RE, '').trim();
 }
 
+// AIの和訳応答をパースする（"##マーカー名" が残っていれば拾うが、通常のAI応答には現れない）。
 function parseBulkWordsInput(text) {
   const rows = [];
   const errorLines = [];
@@ -220,30 +226,164 @@ function parseBulkWordsInput(text) {
   return { rows, errorLines };
 }
 
-async function submitBulkWordsRegister() {
-  const input = $('wordsRegisterBulkInput');
+// 入力欄1の英単語・フレーズをAIに和訳してもらい、"English :: 日本語" 形式の候補を
+// チェックボックス付きで一覧表示する。選択されたものだけをSupabaseへ一括登録し、
+// 未選択（チェックを外した）ものは入力欄1に英語のみ戻す。
+
+let registerCandidates = []; // AI応答をパースした候補 [{en, ja, marker}]
+
+// ブラウザから直接Gemini APIを呼ぶ経路（サーバーの prompts/word-translate.md と同内容を保持）。
+function buildTranslatePrompt(wordListText) {
+  return (
+    `末尾に示す英単語・フレーズのリストについて、以下の形式で日本語訳を簡潔に示してください。\n\n` +
+    `## 出力形式\n` +
+    `- 1行＝1語（または1フレーズ）\n` +
+    `- 「英語 :: 日本語の意味」で出力\n` +
+    `- 前後に余計な言葉をいれず、出力そのもののみを表示する\n` +
+    `- スペルミスがある場合は、修正した正しいスペルを左側に置く\n` +
+    `- その場合のみ、行末に「（##スペル修正有）」を付ける\n` +
+    `- 余計な空行は入れない\n` +
+    `- 不自然だが意味が通じる場合は、日本語側に簡潔に注記する\n\n` +
+    `## 入出力例\n` +
+    `### 入力例\n` +
+    `from bearich to doomsday\nquadripled\nbamboozle ...\nglaucoma\n\n` +
+    `### 出力例\n` +
+    `from bearish to doomsday :: 弱気から終末論的な悲観まで （##スペル修正有）\n` +
+    `quadrupled :: 4倍になった （##スペル修正有）\n` +
+    `bamboozle :: ...をだます；煙に巻く\n` +
+    `glaucoma :: 緑内障\n\n` +
+    `## 入力単語\n` +
+    wordListText
+  );
+}
+
+async function callGeminiTranslateDirect(wordListText, apiKey) {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: buildTranslatePrompt(wordListText) }] }] }),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `Gemini API エラー (HTTP ${res.status})`);
+  const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
+  if (!text) throw new Error('Gemini から有効な応答が得られませんでした。');
+  return text;
+}
+
+async function callGeminiTranslateViaServer(wordListText) {
+  const res = await fetch('/api/gemini-translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ words: wordListText }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `エラー (HTTP ${res.status})`);
+  return data.text;
+}
+
+function renderRegisterCandidates(rows) {
+  registerCandidates = rows;
+  const list = $('wordsRegisterCandidateList');
+  list.innerHTML = rows.map((r, i) => `
+    <label class="register-candidate-item">
+      <input type="checkbox" class="register-candidate-checkbox" data-idx="${i}" checked>
+      <span>${escapeHtml(r.en)} :: ${escapeHtml(r.ja)}</span>
+    </label>
+  `).join('');
+  $('wordsRegisterCandidateBox').hidden = false;
+}
+
+async function requestAiTranslateBulk() {
+  const input = $('wordsRegisterInput1');
+  const btn = $('wordsRegisterAiTranslateBtn');
   const errorEl = $('wordsRegisterBulkError');
   const statusEl = $('wordsRegisterBulkStatus');
   errorEl.textContent = '';
   statusEl.textContent = '';
 
-  const { rows, errorLines } = parseBulkWordsInput(input.value);
-  if (rows.length === 0) {
-    errorEl.textContent = '登録できる行がありませんでした（"English :: 日本語" の形式で入力してください）。';
+  const wordListText = input.value.trim();
+  if (!wordListText) {
+    errorEl.textContent = '単語・フレーズを1行1件で入力してください。';
     return;
   }
 
+  $('wordsRegisterCandidateBox').hidden = true;
+  registerCandidates = [];
+  btn.disabled = true;
+  btn.textContent = '和訳を取得中…';
+
+  const key = loadGeminiKey();
   try {
+    const text = key
+      ? await callGeminiTranslateDirect(wordListText, key)
+      : await callGeminiTranslateViaServer(wordListText);
+    const { rows, errorLines } = parseBulkWordsInput(text);
+    if (rows.length === 0) {
+      errorEl.textContent = 'AIの応答から和訳候補を抽出できませんでした。';
+      return;
+    }
+    renderRegisterCandidates(rows);
+    if (errorLines.length) {
+      const responseLines = text.split('\n');
+      const failedLines = errorLines.map(n => responseLines[n - 1]).filter(Boolean);
+      input.value = failedLines.join('\n');
+      statusEl.textContent = `形式が読み取れなかった行が${errorLines.length}件あります（入力欄に戻しました）。`;
+    } else {
+      input.value = '';
+    }
+  } catch (err) {
+    const hint = key
+      ? '（保存されているAPIキーが正しいか、ホーム画面の「AI機能のAPIキー設定」から確認してください）'
+      : '（この機能は node server.js でローカルサーバーを起動しているか、ホーム画面の「AI機能のAPIキー設定」でGemini APIキーを登録している場合のみ利用できます）';
+    errorEl.textContent = 'AIへの和訳リクエストに失敗しました: ' + err.message + hint;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 AIに和訳を依頼';
+  }
+}
+
+async function submitSelectedRegisterCandidates() {
+  const input = $('wordsRegisterInput1');
+  const errorEl = $('wordsRegisterBulkError');
+  const statusEl = $('wordsRegisterBulkStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+
+  const checkboxes = [...document.querySelectorAll('.register-candidate-checkbox')];
+  const checkedIdx = new Set(checkboxes.filter(c => c.checked).map(c => Number(c.dataset.idx)));
+  const toRegister = registerCandidates.filter((_, i) => checkedIdx.has(i));
+  const toReturn = registerCandidates.filter((_, i) => !checkedIdx.has(i));
+
+  if (toRegister.length === 0) {
+    errorEl.textContent = '登録する単語を1つ以上選択してください。';
+    return;
+  }
+
+  const btn = $('wordsRegisterSubmitSelectedBtn');
+  btn.disabled = true;
+  try {
+    const rows = toRegister.map(r => ({ en: r.en, ja: r.ja, marker: r.marker || null }));
     const data = await apiFetch('/api/words/import', { method: 'POST', body: JSON.stringify({ rows }) });
     await refreshWords();
+
     let msg = `✅ ${data.inserted}件登録しました。`;
-    if (errorLines.length) {
-      msg += ` （形式が不正で無視した行: ${errorLines.join(', ')}行目）`;
+    const existingText = input.value.trim();
+    const returnLines = toReturn.map(r => r.en);
+    if (returnLines.length) {
+      input.value = [existingText, ...returnLines].filter(Boolean).join('\n');
+      msg += ` （未選択の${returnLines.length}件は入力欄に戻しました）`;
     }
     statusEl.textContent = msg;
-    input.value = '';
+
+    $('wordsRegisterCandidateBox').hidden = true;
+    registerCandidates = [];
   } catch (err) {
     errorEl.textContent = '登録に失敗しました: ' + err.message;
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -275,7 +415,7 @@ async function loadWordsTablePage(page) {
     // データ番号(row)の降順 = 直近に登録されたものが1ページ目の先頭に来る。
     const { data, error, count } = await sb
       .from('words')
-      .select('id, row, en, ja, marker', { count: 'exact' })
+      .select('id, row, en, ja, marker, ai_note', { count: 'exact' })
       .order('row', { ascending: false })
       .range(from, to);
     if (error) throw error;
@@ -293,6 +433,7 @@ async function loadWordsTablePage(page) {
         <td class="wrap">${escapeHtml(w.en)}</td>
         <td class="wrap">${escapeHtml(w.ja)}</td>
         <td>${escapeHtml(w.marker)}</td>
+        <td class="ai-note-flag">${w.ai_note ? '✅' : ''}</td>
       </tr>
     `).join('');
 
@@ -1444,13 +1585,16 @@ function bindEvents() {
   // ---- 単語を直接登録 ----
 
   $('goWordsRegisterBtn').addEventListener('click', () => {
-    $('wordsRegisterBulkInput').value = '';
+    $('wordsRegisterInput1').value = '';
     $('wordsRegisterBulkError').textContent = '';
     $('wordsRegisterBulkStatus').textContent = '';
+    $('wordsRegisterCandidateBox').hidden = true;
+    registerCandidates = [];
     showScreen('wordsRegister');
   });
   $('wordsRegisterBackBtn').addEventListener('click', () => renderHome());
-  $('wordsRegisterBulkSaveBtn').addEventListener('click', submitBulkWordsRegister);
+  $('wordsRegisterAiTranslateBtn').addEventListener('click', requestAiTranslateBulk);
+  $('wordsRegisterSubmitSelectedBtn').addEventListener('click', submitSelectedRegisterCandidates);
 
   // ---- 全データ閲覧 ----
 
@@ -1598,7 +1742,9 @@ async function init() {
     renderStatusBar('error', err.message);
     return;
   }
-  renderHome();
+  // 初期データ取得中にユーザーが既に他の画面へ操作していた場合、ここで強制的に
+  // ホームへ戻さない（その画面はそれぞれの「戻る」導線で改めてrenderHome()される）。
+  if (currentScreenName === null) renderHome();
 }
 
 init();

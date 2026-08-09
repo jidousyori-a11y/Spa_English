@@ -116,6 +116,29 @@ h2 {
   cursor: pointer;
 }
 
+.register-candidate-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 4px 12px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+}
+
+.register-candidate-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 14px;
+  color: #334155;
+  padding: 8px 0;
+  border-bottom: 1px solid #e2e8f0;
+  cursor: pointer;
+}
+.register-candidate-item:last-child { border-bottom: none; }
+.register-candidate-item input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+
 .mode-btn {
   background: #2563eb;
   color: white;
@@ -572,6 +595,7 @@ h2 {
 .data-table col.col-en { width: 30%; }
 .data-table col.col-ja { width: 48%; }
 .data-table col.col-marker { width: 90px; }
+.data-table col.col-ainote { width: 74px; }
 .data-table th, .data-table td {
   padding: 8px 10px;
   border: 1px solid #cbd5e1;
@@ -594,6 +618,9 @@ h2 {
 .data-table td.wrap {
   white-space: normal;
   word-break: break-word;
+}
+.data-table td.ai-note-flag {
+  text-align: center;
 }
 .row-edit-link {
   background: none;

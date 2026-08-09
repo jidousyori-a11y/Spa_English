@@ -157,16 +157,24 @@
       <h2 style="margin:0;">単語を直接登録</h2>
       <span></span>
     </header>
-    <p class="muted">Excelを介さず、単語をSupabaseに直接登録します（ローカルサーバー起動時のみ）。</p>
+    <p class="muted">英単語・フレーズをAIに和訳してもらい、選んだものだけをSupabaseに直接登録します（ローカルサーバー起動時のみ）。</p>
 
     <div class="waei-form-box">
-      <label class="waei-label" for="wordsRegisterBulkInput">1行1件、`English :: 日本語` 形式で貼り付けてください。行末に `##マーカー名` を付けるとマーカーも設定されます。</label>
-      <textarea id="wordsRegisterBulkInput" class="waei-textarea" rows="8" placeholder="sophistry :: 詭弁；へりくつ&#10;have an inkling :: うすうす感づいている##idiom"></textarea>
+      <label class="waei-label" for="wordsRegisterInput1">1行1件、英単語または英語表現を貼り付けてください。</label>
+      <textarea id="wordsRegisterInput1" class="waei-textarea" rows="8" placeholder="sophistry&#10;have an inkling"></textarea>
       <div class="ai-key-actions">
-        <button type="button" id="wordsRegisterBulkSaveBtn" class="primary" style="flex:1;">一括登録する</button>
+        <button type="button" id="wordsRegisterAiTranslateBtn" class="primary" style="flex:1;">🤖 AIに和訳を依頼</button>
       </div>
       <p id="wordsRegisterBulkError" class="error"></p>
       <p id="wordsRegisterBulkStatus" class="muted"></p>
+
+      <div id="wordsRegisterCandidateBox" hidden>
+        <label class="waei-label">和訳候補（チェックを外すと登録対象から除外し、入力欄に戻します）</label>
+        <div id="wordsRegisterCandidateList" class="register-candidate-list"></div>
+        <div class="ai-key-actions">
+          <button type="button" id="wordsRegisterSubmitSelectedBtn" class="primary" style="flex:1;">選択したものを一括登録</button>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -185,6 +193,7 @@
           <col class="col-en">
           <col class="col-ja">
           <col class="col-marker">
+          <col class="col-ainote">
         </colgroup>
         <thead>
           <tr>
@@ -192,6 +201,7 @@
             <th>English</th>
             <th>日本語</th>
             <th>マーカー</th>
+            <th>AI補足</th>
           </tr>
         </thead>
         <tbody id="wordsTableBody"></tbody>
