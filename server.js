@@ -355,6 +355,36 @@ async function handleNotesDelete(req, res, id) {
   }
 }
 
+// POST /api/latest-clears  { date: 'YYYY-MM-DD', exempted?: boolean, reason?: string }
+// → その日をクリア済み(または免除)として記録する。
+// 同じ日に複数回呼ばれても(on_conflict + ignore-duplicates)行は増えない。
+async function handleLatestClearsCreate(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const date = (payload.date || '').toString().trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    sendJson(res, 400, { error: '日付の形式が不正です(YYYY-MM-DD)。' });
+    return;
+  }
+  const exempted = !!payload.exempted;
+  const reason = typeof payload.reason === 'string' ? (payload.reason.trim() || null) : null;
+  try {
+    await supabaseServiceRequest('/latest_clears?on_conflict=cleared_date', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify({ cleared_date: date, exempted, reason }),
+    });
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
 async function handleGeminiExamples(req, res) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -508,6 +538,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'POST' && urlPath === '/api/words/import') {
     handleWordsImport(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/latest-clears') {
+    handleLatestClearsCreate(req, res);
     return;
   }
   if (req.method === 'POST' && urlPath === '/api/expressions') {

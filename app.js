@@ -7,7 +7,6 @@ const LS_CUSTOM = 'eiwq.custom.v1';
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
-const LS_LATEST_CLEAR = 'eiwq.latestClear.v1'; // Latest単語モードの最終クリア日・連続達成日数
 const SHEET_NAME = 'Wrk';
 const QUIZ_SIZE = 15;
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -114,7 +113,10 @@ function loadCustomSettings() {
 }
 function saveCustomSettings(x, y) { localStorage.setItem(LS_CUSTOM, JSON.stringify({ x, y })); }
 
-// ---------- Latest単語モードの連続達成記録（端末ローカル。日付は端末のローカル日付） ----------
+// ---------- Latest単語モードの連続達成記録 ----------
+// Supabase側の latest_clears テーブルで管理する（複数ブラウザ・端末をまたいで
+// 集計するため。localStorageは使わない）。読み取りはanonキーで直接、書き込みは
+// 他の書き込み系と同様ローカルサーバー経由のみ。
 
 function toDateStr(d) {
   const y = d.getFullYear();
@@ -122,28 +124,78 @@ function toDateStr(d) {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-
-function loadLatestClearInfo() {
-  try { return JSON.parse(localStorage.getItem(LS_LATEST_CLEAR)) || null; }
-  catch { return null; }
+function addDaysStr(dateStr, delta) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  return toDateStr(d);
 }
-function saveLatestClearInfo(info) { localStorage.setItem(LS_LATEST_CLEAR, JSON.stringify(info)); }
+
+let latestClearDates = []; // 新しい順配列 [{date:'YYYY-MM-DD', exempted:boolean}]
+
+async function refreshLatestClears() {
+  const { data, error } = await sb
+    .from('latest_clears')
+    .select('cleared_date, exempted')
+    .order('cleared_date', { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  latestClearDates = (data || []).map(r => ({ date: r.cleared_date, exempted: !!r.exempted }));
+}
+
+// 新しい順の配列から、直近の日を起点にした連続達成日数を求める。
+// 免除の日もクリアと同様に「途切れていない日」として扱う。
+function computeLatestStreak(datesDesc) {
+  if (!datesDesc.length) return { lastDate: null, lastExempted: false, streak: 0 };
+  let streak = 1;
+  for (let i = 1; i < datesDesc.length; i++) {
+    if (datesDesc[i].date === addDaysStr(datesDesc[i - 1].date, -1)) streak++;
+    else break;
+  }
+  return { lastDate: datesDesc[0].date, lastExempted: datesDesc[0].exempted, streak };
+}
 
 // Latest単語モードのセッションが全問正解でクリアされた時点で呼ぶ。同じ日に複数回
-// クリアしても連続日数は増やさない（1日1カウント）。
-function recordLatestClear() {
+// クリアしても連続日数は増やさない（1日1カウント、Supabase側でも on_conflict で防止）。
+async function recordLatestClear() {
   const today = toDateStr(new Date());
-  const info = loadLatestClearInfo();
-  if (info && info.lastClearDate === today) return;
-  const yesterday = toDateStr(new Date(Date.now() - 86400000));
-  const streak = info && info.lastClearDate === yesterday ? info.streak + 1 : 1;
-  saveLatestClearInfo({ lastClearDate: today, streak });
+  if (latestClearDates[0] && latestClearDates[0].date === today) return;
+  try {
+    await apiFetch('/api/latest-clears', { method: 'POST', body: JSON.stringify({ date: today, exempted: false }) });
+    latestClearDates = [{ date: today, exempted: false }, ...latestClearDates.filter(d => d.date !== today)];
+    renderLatestStreak();
+  } catch {
+    // ローカルサーバー未起動環境(GitHub Pages等)では記録できないが、クイズ自体は進行させる。
+  }
+}
+
+// 「今日は免除にする」ボタンから呼ぶ。特別な理由で今日クリアできない場合、実際には
+// クイズをやらずに、連続日数だけは途切れさせずに継続させる。
+async function exemptToday() {
+  const today = toDateStr(new Date());
+  if (latestClearDates[0] && latestClearDates[0].date === today) {
+    alert('今日の分は既に記録されています。');
+    return;
+  }
+  if (!confirm('今日のLatest単語クリアを免除します（実際にはクイズを行わず、連続日数はそのまま継続扱いになります）。よろしいですか？')) return;
+  const reason = (prompt('免除の理由（任意・空欄でも可）') || '').trim();
+  try {
+    await apiFetch('/api/latest-clears', {
+      method: 'POST',
+      body: JSON.stringify({ date: today, exempted: true, reason: reason || null }),
+    });
+    latestClearDates = [{ date: today, exempted: true }, ...latestClearDates.filter(d => d.date !== today)];
+    renderLatestStreak();
+  } catch (err) {
+    alert('免除の登録に失敗しました: ' + err.message);
+  }
 }
 
 function renderLatestStreak() {
-  const info = loadLatestClearInfo();
+  const { lastDate, lastExempted, streak } = computeLatestStreak(latestClearDates);
   const el = $('latest50StreakInfo');
-  el.textContent = info ? `最終クリア: ${info.lastClearDate}／${info.streak}日連続達成中` : '';
+  if (!lastDate) { el.textContent = ''; return; }
+  const label = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
+  el.textContent = `${label}／${streak}日連続達成中`;
 }
 
 function loadGeminiKey() {
@@ -1614,6 +1666,7 @@ function bindEvents() {
   });
 
   $('markerTestStartBtn').addEventListener('click', startMarkerTest);
+  $('latest50ExemptBtn').addEventListener('click', exemptToday);
 
   $('resumeBtn').addEventListener('click', () => {
     const s = loadSession();
@@ -1835,7 +1888,7 @@ async function init() {
     return;
   }
   try {
-    await Promise.all([refreshWords(), refreshExpressions(), refreshNotes()]);
+    await Promise.all([refreshWords(), refreshExpressions(), refreshNotes(), refreshLatestClears()]);
   } catch (err) {
     renderStatusBar('error', err.message);
     return;
