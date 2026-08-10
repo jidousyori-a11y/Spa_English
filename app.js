@@ -7,6 +7,7 @@ const LS_CUSTOM = 'eiwq.custom.v1';
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
+const LS_LATEST_CLEAR = 'eiwq.latestClear.v1'; // Latest単語モードの最終クリア日・連続達成日数
 const SHEET_NAME = 'Wrk';
 const QUIZ_SIZE = 15;
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -112,6 +113,38 @@ function loadCustomSettings() {
   catch { return { x: 15, y: 5000 }; }
 }
 function saveCustomSettings(x, y) { localStorage.setItem(LS_CUSTOM, JSON.stringify({ x, y })); }
+
+// ---------- Latest単語モードの連続達成記録（端末ローカル。日付は端末のローカル日付） ----------
+
+function toDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function loadLatestClearInfo() {
+  try { return JSON.parse(localStorage.getItem(LS_LATEST_CLEAR)) || null; }
+  catch { return null; }
+}
+function saveLatestClearInfo(info) { localStorage.setItem(LS_LATEST_CLEAR, JSON.stringify(info)); }
+
+// Latest単語モードのセッションが全問正解でクリアされた時点で呼ぶ。同じ日に複数回
+// クリアしても連続日数は増やさない（1日1カウント）。
+function recordLatestClear() {
+  const today = toDateStr(new Date());
+  const info = loadLatestClearInfo();
+  if (info && info.lastClearDate === today) return;
+  const yesterday = toDateStr(new Date(Date.now() - 86400000));
+  const streak = info && info.lastClearDate === yesterday ? info.streak + 1 : 1;
+  saveLatestClearInfo({ lastClearDate: today, streak });
+}
+
+function renderLatestStreak() {
+  const info = loadLatestClearInfo();
+  const el = $('latest50StreakInfo');
+  el.textContent = info ? `最終クリア: ${info.lastClearDate}／${info.streak}日連続達成中` : '';
+}
 
 function loadGeminiKey() {
   try { return localStorage.getItem(LS_GEMINI_KEY) || ''; } catch { return ''; }
@@ -1084,7 +1117,7 @@ function renderHome() {
       $('lastImportText').textContent = 'Supabase上のデータを表示しています。';
     }
     const latestN = Math.max(1, (meta && meta.latestAddedCount) || 15);
-    $('latest50Btn').textContent = `Latest単語(${latestN}個)`;
+    $('latest50Title').textContent = `Latest単語(${latestN}個)`;
     modeBtns.forEach(b => b.disabled = false);
   } else {
     $('wordCountText').textContent = '単語データがありません。下の「データ再取り込み」から Excel を読み込んでください。';
@@ -1104,6 +1137,8 @@ function renderHome() {
   } else {
     resumeBtn.hidden = true;
   }
+
+  renderLatestStreak();
 
   $('errorMsg').textContent = '';
   renderAiKeyStatus();
@@ -1494,6 +1529,7 @@ function renderRoundResult() {
   const allCorrect = wrongs.length === 0;
 
   if (allCorrect) {
+    if (session.mode === 'latest50') recordLatestClear();
     $('resultTitle').textContent = `🎉 ${session.round}周目で全問正解！クリアです`;
     $('resultDetail').textContent = `${session.words.length} 問すべて正解しました。お疲れさまでした。`;
     $('wrongList').innerHTML = '';

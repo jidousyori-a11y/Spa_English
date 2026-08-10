@@ -154,8 +154,16 @@ h2 {
 .mode-btn:active { background: #1d4ed8; }
 .mode-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 
-.latest50-btn { background: #4f46e5; }
-.latest50-btn:active { background: #4338ca; }
+.latest50-btn { background: #f97316; }
+.latest50-btn:active { background: #c2410c; }
+
+.mode-btn-sub {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  opacity: .9;
+  margin-top: 4px;
+}
 
 .custom-box {
   background: #fff;
@@ -670,7 +678,7 @@ h2 {
   }
 
   .mode-btn:hover:not(:disabled) { background: #1d4ed8; }
-  .latest50-btn:hover:not(:disabled) { background: #4338ca; }
+  .latest50-btn:hover:not(:disabled) { background: #c2410c; }
   .primary:hover { background: #1d4ed8; }
   .judge-btn.correct:hover { background: #15803d; }
   .judge-btn.wrong:hover { background: #b91c1c; }
