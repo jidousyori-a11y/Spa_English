@@ -635,9 +635,49 @@ async function openWordEditFromTable(id) {
     $('wordEditJa').value = data.ja || '';
     $('wordEditMarker').value = data.marker || '';
     $('wordEditAiNote').value = data.ai_note || '';
+    const aiBtn = $('wordEditAiRequestBtn');
+    aiBtn.disabled = false;
+    aiBtn.textContent = '✨ 例文をAIにリクエスト';
   } catch (err) {
     $('wordEditRowLabel').textContent = '';
     errorEl.textContent = '読み込みに失敗しました: ' + err.message;
+  }
+}
+
+// 編集画面上のEnglish/日本語（未保存の入力中の値でよい）を使ってAIに例文・補足を
+// リクエストし、その場でAI補足欄に反映する。保存はこの画面の既存の「保存する」
+// ボタンで行う（他のフィールドとまとめて編集・保存できるようにするため、
+// クイズ画面のように生成直後の自動保存はしない）。
+async function requestAiNoteForEdit() {
+  const en = $('wordEditEn').value.trim();
+  const ja = $('wordEditJa').value.trim();
+  const errorEl = $('wordEditError');
+  const statusEl = $('wordEditStatus');
+  errorEl.textContent = '';
+  statusEl.textContent = '';
+
+  if (!en || !ja) {
+    errorEl.textContent = 'Englishと日本語の両方を入力してから実行してください。';
+    return;
+  }
+
+  const btn = $('wordEditAiRequestBtn');
+  btn.disabled = true;
+  btn.textContent = '生成中…';
+
+  const key = loadGeminiKey();
+  try {
+    const text = key ? await callGeminiDirect(en, ja, key) : await callGeminiViaServer(en, ja);
+    $('wordEditAiNote').value = text;
+    statusEl.textContent = 'AI補足を生成しました。内容を確認し「保存する」で反映してください。';
+  } catch (err) {
+    const hint = key
+      ? '（保存されているAPIキーが正しいか、ホーム画面の「AI機能のAPIキー設定」から確認してください）'
+      : '（この機能は node server.js でローカルサーバーを起動しているか、ホーム画面の「AI機能のAPIキー設定」でGemini APIキーを登録している場合のみ利用できます）';
+    errorEl.textContent = 'AI補足の取得に失敗しました: ' + err.message + hint;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '✨ 例文をAIにリクエスト';
   }
 }
 
@@ -1776,6 +1816,7 @@ function bindEvents() {
     loadWordsTablePage(wordsTablePage);
   });
   $('wordEditSaveBtn').addEventListener('click', saveWordEditFromTable);
+  $('wordEditAiRequestBtn').addEventListener('click', requestAiNoteForEdit);
 
   // ---- 更改メモ ----
 
