@@ -157,14 +157,6 @@ h2 {
 .latest50-btn { background: #f97316; }
 .latest50-btn:active { background: #c2410c; }
 
-.mode-btn-sub {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  opacity: .9;
-  margin-top: 4px;
-}
-
 .custom-box {
   background: #fff;
   border: 1px solid #dbe4f0;

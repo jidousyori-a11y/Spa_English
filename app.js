@@ -154,7 +154,16 @@ function computeLatestStreak(datesDesc) {
   return { lastDate: datesDesc[0].date, lastExempted: datesDesc[0].exempted, streak };
 }
 
-// Latest単語モードのセッションが全問正解でクリアされた時点で呼ぶ。同じ日に複数回
+// 連続達成日数の対象となるセッションかどうかを判定する。
+// - 上部4モード（Latest単語／完全ランダム／下から300／下から100）は常に対象
+// - 一番下のカスタム設定テストは、出題数が15問以上の場合のみ対象
+function isStreakEligible(session) {
+  if (['latest50', 'all', 'bottom300', 'bottom100'].includes(session.mode)) return true;
+  if (session.mode === 'custom' && session.words.length >= 15) return true;
+  return false;
+}
+
+// 対象セッションが全問正解でクリアされた時点で呼ぶ。同じ日に複数回
 // クリアしても連続日数は増やさない（1日1カウント、Supabase側でも on_conflict で防止）。
 async function recordLatestClear() {
   const today = toDateStr(new Date());
@@ -192,7 +201,7 @@ async function exemptToday() {
 
 function renderLatestStreak() {
   const { lastDate, lastExempted, streak } = computeLatestStreak(latestClearDates);
-  const el = $('latest50StreakInfo');
+  const el = $('latestStreakText');
   if (!lastDate) { el.textContent = ''; return; }
   const label = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
   el.textContent = `${label}／${streak}日連続達成中`;
@@ -1206,7 +1215,7 @@ function renderHome() {
       const dt = new Date(meta.importedAt);
       $('lastImportText').textContent = `最終取り込み: ${dt.toLocaleString('ja-JP')}（${meta.fileName}・追加${meta.latestAddedCount}個）`;
     } else {
-      $('lastImportText').textContent = 'Supabase上のデータを表示しています。';
+      $('lastImportText').textContent = '';
     }
     const latestN = Math.max(1, (meta && meta.latestAddedCount) || 15);
     $('latest50Title').textContent = `Latest単語(${latestN}個)`;
@@ -1621,7 +1630,7 @@ function renderRoundResult() {
   const allCorrect = wrongs.length === 0;
 
   if (allCorrect) {
-    if (session.mode === 'latest50') recordLatestClear();
+    if (isStreakEligible(session)) recordLatestClear();
     $('resultTitle').textContent = `🎉 ${session.round}周目で全問正解！クリアです`;
     $('resultDetail').textContent = `${session.words.length} 問すべて正解しました。お疲れさまでした。`;
     $('wrongList').innerHTML = '';
