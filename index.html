@@ -27,7 +27,10 @@
     <div id="dataStatus" class="data-status">
       <p id="wordCountText">単語データが読み込まれていません。</p>
       <p id="lastImportText" class="muted"></p>
-      <p id="latestStreakText" class="muted"></p>
+      <div id="latestStreakBox" class="streak-box" hidden>
+        <span class="streak-badge"><span class="streak-badge-icon">🔥</span><span id="streakCount"></span></span>
+        <span id="streakDateInfo" class="muted"></span>
+      </div>
     </div>
 
     <div class="mode-buttons" id="modeButtons">

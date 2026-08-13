@@ -201,10 +201,11 @@ async function exemptToday() {
 
 function renderLatestStreak() {
   const { lastDate, lastExempted, streak } = computeLatestStreak(latestClearDates);
-  const el = $('latestStreakText');
-  if (!lastDate) { el.textContent = ''; return; }
-  const label = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
-  el.textContent = `${label}／${streak}日連続達成中`;
+  const box = $('latestStreakBox');
+  if (!lastDate) { box.hidden = true; return; }
+  box.hidden = false;
+  $('streakCount').textContent = `${streak}日連続達成中`;
+  $('streakDateInfo').textContent = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
 }
 
 function loadGeminiKey() {
