@@ -291,69 +291,8 @@ async function handleExpressionsDelete(req, res, id) {
 }
 
 // ---------- 更改メモ(notes) ----------
-// words/expressionsとは完全に独立。同じread-only anon + service_role書き込みパターン。
-
-// POST /api/notes  { text } → notes に1件insert
-async function handleNotesCreate(req, res) {
-  let payload;
-  try {
-    payload = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
-    return;
-  }
-  const text = (payload.text || '').toString().trim();
-  if (!text) {
-    sendJson(res, 400, { error: 'メモを入力してください。' });
-    return;
-  }
-  try {
-    const data = await supabaseServiceRequest('/notes', {
-      method: 'POST',
-      body: JSON.stringify({ text }),
-    });
-    sendJson(res, 200, { item: data[0] });
-  } catch (err) {
-    handleSupabaseError(res, err);
-  }
-}
-
-// PATCH /api/notes/:id  { text } → 1件update
-async function handleNotesUpdate(req, res, id) {
-  let payload;
-  try {
-    payload = await readJsonBody(req);
-  } catch {
-    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
-    return;
-  }
-  const text = (payload.text || '').toString().trim();
-  if (!text) {
-    sendJson(res, 400, { error: 'メモを入力してください。' });
-    return;
-  }
-  try {
-    const data = await supabaseServiceRequest(`/notes?id=eq.${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ text }),
-    });
-    sendJson(res, 200, { item: data[0] });
-  } catch (err) {
-    handleSupabaseError(res, err);
-  }
-}
-
-// DELETE /api/notes/:id
-async function handleNotesDelete(req, res, id) {
-  try {
-    await supabaseServiceRequest(`/notes?id=eq.${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-    sendJson(res, 200, { ok: true });
-  } catch (err) {
-    handleSupabaseError(res, err);
-  }
-}
+// 2026-08-20〜: SupabaseではなくブラウザのlocalStorageで保持する方式に変更したため、
+// このサーバー側の書き込みAPIは廃止（端末・ブラウザごとに独立し、同期はしない）。
 
 // POST /api/latest-clears  { date: 'YYYY-MM-DD', exempted?: boolean, reason?: string }
 // → その日をクリア済み(または免除)として記録する。
@@ -526,7 +465,6 @@ const server = http.createServer((req, res) => {
   const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
   const wordAiNoteMatch = urlPath.match(/^\/api\/words\/([^/]+)\/ai-note$/);
   const wordMatch = urlPath.match(/^\/api\/words\/([^/]+)$/);
-  const noteMatch = urlPath.match(/^\/api\/notes\/([^/]+)$/);
 
   if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
     handleGeminiExamples(req, res);
@@ -562,18 +500,6 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'DELETE' && expressionMatch) {
     handleExpressionsDelete(req, res, decodeURIComponent(expressionMatch[1]));
-    return;
-  }
-  if (req.method === 'POST' && urlPath === '/api/notes') {
-    handleNotesCreate(req, res);
-    return;
-  }
-  if (req.method === 'PATCH' && noteMatch) {
-    handleNotesUpdate(req, res, decodeURIComponent(noteMatch[1]));
-    return;
-  }
-  if (req.method === 'DELETE' && noteMatch) {
-    handleNotesDelete(req, res, decodeURIComponent(noteMatch[1]));
     return;
   }
   if (req.method === 'GET') {

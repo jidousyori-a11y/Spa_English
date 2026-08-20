@@ -7,6 +7,7 @@ const LS_CUSTOM = 'eiwq.custom.v1';
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
+const LS_NOTES = 'eiwq.notes.v1'; // 更改メモの本体。Supabaseには保持せず、端末のlocalStorageのみで管理する。
 const SHEET_NAME = 'Wrk';
 const QUIZ_SIZE = 15;
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -73,8 +74,9 @@ async function refreshWords() {
 async function refreshExpressions() {
   expressions = await fetchAllRows('expressions', 'created_at');
 }
-async function refreshNotes() {
-  notes = await fetchAllRows('notes', 'created_at');
+function refreshNotes() {
+  try { notes = JSON.parse(localStorage.getItem(LS_NOTES)) || []; }
+  catch { notes = []; }
 }
 
 function renderStatusBar(state, msg) {
@@ -807,20 +809,28 @@ function pickWords(allWords, mode, latestAddedCount) {
 }
 
 // ================================================================
-// 更改メモ（単語データ・和英表現とは完全に独立。データ本体はSupabase）
+// 更改メモ（単語データ・和英表現とは完全に独立。データ本体はブラウザのlocalStorageのみで
+// 保持する（Supabaseには保持しない）。端末・ブラウザごとに独立し、同期はされない。
 // ================================================================
 
-async function addNoteItem(text) {
-  await apiFetch('/api/notes', { method: 'POST', body: JSON.stringify({ text }) });
-  await refreshNotes();
+function saveNotesToStorage(list) {
+  localStorage.setItem(LS_NOTES, JSON.stringify(list));
 }
-async function updateNoteItem(id, text) {
-  await apiFetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ text }) });
-  await refreshNotes();
+
+function addNoteItem(text) {
+  const list = [...notes, { id: crypto.randomUUID(), text, created_at: new Date().toISOString() }];
+  saveNotesToStorage(list);
+  refreshNotes();
 }
-async function deleteNoteItem(id) {
-  await apiFetch(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' });
-  await refreshNotes();
+function updateNoteItem(id, text) {
+  const list = notes.map(n => (n.id === id ? { ...n, text } : n));
+  saveNotesToStorage(list);
+  refreshNotes();
+}
+function deleteNoteItem(id) {
+  const list = notes.filter(n => n.id !== id);
+  saveNotesToStorage(list);
+  refreshNotes();
 }
 
 function renderNotesList() {
@@ -1934,12 +1944,13 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  refreshNotes(); // localStorage由来のため、Supabaseの接続状況に関わらず常に読み込む
   if (!window.SUPABASE_URL || window.SUPABASE_URL === 'YOUR_SUPABASE_URL') {
     renderStatusBar('unconfigured');
     return;
   }
   try {
-    await Promise.all([refreshWords(), refreshExpressions(), refreshNotes(), refreshLatestClears()]);
+    await Promise.all([refreshWords(), refreshExpressions(), refreshLatestClears()]);
   } catch (err) {
     renderStatusBar('error', err.message);
     return;
