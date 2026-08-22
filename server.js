@@ -20,6 +20,7 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 const SUPABASE_URL = 'https://owuwhpfybfozzlovmehl.supabase.co';
 const WORD_NOTE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-note.md');
 const WORD_TRANSLATE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-translate.md');
+const NOTES_FILE = path.join(ROOT, 'notes.json');
 
 // プロンプトはコードから切り離し、prompts/*.md から都度読み込む
 // (サーバー再起動なしで文面を調整できる)。
@@ -68,12 +69,27 @@ function serveStatic(req, res) {
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
-    let body = '';
+    const chunks = [];
+    let length = 0;
     req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 1e6) req.destroy(); // 念のための上限
+      chunks.push(chunk);
+      length += chunk.length;
+      // Bufferのまま溜めて、末尾でまとめてUTF-8デコードする。文字列に逐次+=すると、
+      // マルチバイト文字がチャンク境界で分割された際に文字化け(復元不能な文字欠損)が
+      // 発生するため避ける。
+      if (length > 1e6) req.destroy(); // 念のための上限
     });
     req.on('end', () => {
+      let body;
+      try {
+        // fatal:true で不正なUTF-8バイト列を検出したら例外を投げる。
+        // Buffer.toString('utf-8')には検証が無く、不正なバイト列を黙って
+        // U+FFFDに置き換えてしまう(Pythonのerrors="replace"と同じ危険な挙動)ため使わない。
+        body = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks));
+      } catch (e) {
+        reject(new Error('リクエストの文字コードが不正です(UTF-8として解釈できません): ' + e.message));
+        return;
+      }
       try { resolve(body ? JSON.parse(body) : {}); }
       catch (e) { reject(e); }
     });
@@ -162,6 +178,35 @@ async function handleWordsImport(req, res) {
       body: JSON.stringify(clean),
     });
     sendJson(res, 200, { inserted: data.length });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
+// POST /api/words/delete-bulk  { ids: [id, id, ...] } → words から複数件を一括削除
+// 全データ閲覧画面での複数選択削除用。row列の値そのものは詰めない(振り直しは
+// 表示側のみで行う。english_spabase_updateスキルがSupabase上の最大rowをExcel行番号と
+// 比較して新規判定に使っているため、row値自体は変更しない)。
+async function handleWordsDeleteBulk(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const ids = Array.isArray(payload.ids)
+    ? [...new Set(payload.ids.map(x => String(x).trim()).filter(Boolean))]
+    : [];
+  if (ids.length === 0) {
+    sendJson(res, 400, { error: '削除対象が指定されていません。' });
+    return;
+  }
+  try {
+    await supabaseServiceRequest(`/words?id=in.(${ids.map(encodeURIComponent).join(',')})`, {
+      method: 'DELETE',
+    });
+    sendJson(res, 200, { ok: true, deleted: ids.length });
   } catch (err) {
     handleSupabaseError(res, err);
   }
@@ -290,9 +335,33 @@ async function handleExpressionsDelete(req, res, id) {
   }
 }
 
-// ---------- 更改メモ(notes) ----------
-// 2026-08-20〜: SupabaseではなくブラウザのlocalStorageで保持する方式に変更したため、
-// このサーバー側の書き込みAPIは廃止（端末・ブラウザごとに独立し、同期はしない）。
+// ---------- 更改メモ(notes.json、単語データ・和英表現とは完全に独立) ----------
+// このAI_Experiment配下の他アプリ(登山PDCAサイクル等)と共通のパターン：
+// 読み込みはnotes.jsonを静的ファイルとしてそのままGETし、保存は配列まるごとを
+// POST /api/notes/save に渡して上書きする（words/expressions等の複数レコードAPIとは
+// 異なり、単一ユーザーが手動編集する小さなメモ一覧なのでこの単純な方式で十分）。
+// Supabase・localStorageのいずれにも保持しない。
+
+// POST /api/notes/save  { notes: [{id,text,createdAt}, ...] } → notes.json を丸ごと上書き
+async function handleNotesSave(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  if (!payload || !Array.isArray(payload.notes)) {
+    sendJson(res, 400, { error: 'notes配列が含まれていません。' });
+    return;
+  }
+  try {
+    fs.writeFileSync(NOTES_FILE, JSON.stringify(payload));
+    sendJson(res, 200, { ok: true });
+  } catch (e) {
+    sendJson(res, 500, { error: 'notes.json への書き込みに失敗しました: ' + e.message });
+  }
+}
 
 // POST /api/latest-clears  { date: 'YYYY-MM-DD', exempted?: boolean, reason?: string }
 // → その日をクリア済み(または免除)として記録する。
@@ -470,12 +539,20 @@ const server = http.createServer((req, res) => {
     handleGeminiExamples(req, res);
     return;
   }
+  if (req.method === 'POST' && urlPath === '/api/notes/save') {
+    handleNotesSave(req, res);
+    return;
+  }
   if (req.method === 'POST' && urlPath === '/api/gemini-translate') {
     handleGeminiTranslate(req, res);
     return;
   }
   if (req.method === 'POST' && urlPath === '/api/words/import') {
     handleWordsImport(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/words/delete-bulk') {
+    handleWordsDeleteBulk(req, res);
     return;
   }
   if (req.method === 'POST' && urlPath === '/api/latest-clears') {
