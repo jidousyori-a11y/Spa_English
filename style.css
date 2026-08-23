@@ -276,21 +276,30 @@ h2 {
 }
 .secondary:active { background: #eef2f9; }
 
+.resume-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
 .resume-btn {
-  display: block;
-  width: 100%;
+  flex: 1;
   background: #facc15;
   color: #713f12;
   border: 1px solid #eab308;
   border-radius: 10px;
-  padding: 14px 18px;
-  font-size: 15px;
+  padding: 14px 12px;
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   text-align: center;
-  margin-bottom: 16px;
 }
 .resume-btn:active { background: #eab308; }
+.resume-btn:disabled {
+  background: #e5e7eb;
+  color: #9ca3af;
+  border-color: #d1d5db;
+  cursor: not-allowed;
+}
 
 .error {
   color: #dc2626;

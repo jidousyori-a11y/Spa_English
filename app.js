@@ -4,6 +4,7 @@ const sb = createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 
 const LS_SESSION = 'eiwq.session.v1';
 const LS_CUSTOM = 'eiwq.custom.v1';
+const LS_LAST_MODE = 'eiwq.lastMode.v1'; // 「前回と同じテスト」用。直近に開始したモード文字列を保持する（セッション自体が終了・消去された後も残す）。
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
@@ -113,6 +114,31 @@ function loadSession() {
 }
 function saveSession(s) { localStorage.setItem(LS_SESSION, JSON.stringify(s)); }
 function clearSession() { localStorage.removeItem(LS_SESSION); }
+
+// 「前回と同じテスト」ボタン用。セッションが完了・消去された後も、直近に選ばれた
+// モードだけは覚えておく。
+function loadLastMode() {
+  try { return localStorage.getItem(LS_LAST_MODE) || null; } catch { return null; }
+}
+function saveLastMode(mode) { localStorage.setItem(LS_LAST_MODE, mode); }
+
+// 専用の記録(LS_LAST_MODE)がまだ無い場合でも、既存のセッション（この機能の追加より前に
+// 開始したものを含む）にmodeが残っていればそれを使う（機能追加直後でも、新規にテストを
+// 始め直さずに「前回と同じテスト」が使えるようにするため）。表示側(renderHome)・実行側
+// (クリックハンドラ)の両方から呼ぶので、判定がズレないようここに一本化する。
+// セッションのmodeを頼りにした場合は、その場でLS_LAST_MODEへ書き戻しておく。そうしないと、
+// 「前回の続きから」で再開しただけ（saveLastModeを呼ばない）のセッションを後で完全クリアして
+// ホームへ戻った時、セッション自体が消えて手がかりを失ってしまう。
+function getEffectiveLastMode() {
+  const session = loadSession();
+  const stored = loadLastMode();
+  if (stored) return stored;
+  if (session && session.mode) {
+    saveLastMode(session.mode);
+    return session.mode;
+  }
+  return null;
+}
 
 function loadCustomSettings() {
   try { return JSON.parse(localStorage.getItem(LS_CUSTOM)) || { x: 15, y: 5000 }; }
@@ -820,6 +846,24 @@ function shuffle(arr) {
 // マーカー(D列由来)ごとのクイズモード用ラベル。未知のマーカーは値をそのまま表示する。
 const MARKER_LABELS = { tips: 'Tips' };
 
+// 「前回と同じテスト」ボタンのツールチップ表示用。実際に出題する単語には触れず、
+// モード文字列だけから静的に説明文を組み立てる（pickWordsとは別の軽量な用途）。
+function describeMode(mode) {
+  if (!mode) return '';
+  if (mode.startsWith('marker:')) {
+    const list = mode.slice('marker:'.length).split(',').filter(Boolean);
+    return `マーカー付き単語（${list.map(m => MARKER_LABELS[m] || m).join('・')}）`;
+  }
+  switch (mode) {
+    case 'latest50': return 'Latest単語';
+    case 'all': return '完全ランダム';
+    case 'bottom300': return '下から300';
+    case 'bottom100': return '下から100';
+    case 'custom': return 'カスタム設定';
+    default: return mode;
+  }
+}
+
 function pickWords(allWords, mode, latestAddedCount) {
   let pool;
   let label;
@@ -1298,13 +1342,27 @@ function renderHome() {
   $('customY').value = custom.y;
   $('customStartBtn').disabled = words.length === 0;
 
+  // 「前回の続きから」「前回と同じテスト」は対のボタンとして扱う。前回のテストの手がかり
+  // (lastMode)が少しでもあれば両方とも表示し、実際に再開できるセッションが無い場合
+  // （完全クリア後など）は左の「前回の続きから」だけをグレーアウトする（隠さない）。
   const resumeBtn = $('resumeBtn');
-  if (session && session.words && session.currentIndex < session.words.length) {
+  const repeatBtn = $('repeatLastTestBtn');
+  const lastMode = getEffectiveLastMode();
+  const resumable = !!(session && session.words && session.currentIndex < session.words.length);
+
+  if (lastMode && words.length) {
+    repeatBtn.hidden = false;
+    repeatBtn.title = `前回選んだテスト: ${describeMode(lastMode)}`;
+
     resumeBtn.hidden = false;
+    resumeBtn.disabled = !resumable;
     // ボタン本体は短く「前回の続きから」のみとし、状況の詳細はホバー時のツールチップ(title)で示す。
-    resumeBtn.title = `${session.modeLabel} / ${session.round}周目 ${session.currentIndex + 1}/${session.words.length}`;
+    resumeBtn.title = resumable
+      ? `${session.modeLabel} / ${session.round}周目 ${session.currentIndex + 1}/${session.words.length}`
+      : '再開できるクイズはありません（前回のテストは完了済みです）';
   } else {
     resumeBtn.hidden = true;
+    repeatBtn.hidden = true;
   }
 
   renderLatestStreak();
@@ -1331,6 +1389,7 @@ function startCustomSession() {
   const x = Math.max(1, parseInt($('customX').value) || 15);
   const y = Math.max(1, parseInt($('customY').value) || 5000);
   saveCustomSettings(x, y);
+  saveLastMode('custom');
   const effectiveY = Math.min(y, words.length);
   const pool = words.slice(-effectiveY);
   const n = Math.min(x, pool.length);
@@ -1349,6 +1408,7 @@ function startCustomSession() {
 
 function startNewSession(mode) {
   if (!words.length) return;
+  saveLastMode(mode);
   const meta = loadImportMeta();
   const { words: picked, label } = pickWords(words, mode, meta && meta.latestAddedCount);
   const session = {
@@ -1788,6 +1848,18 @@ function bindEvents() {
   $('resumeBtn').addEventListener('click', () => {
     const s = loadSession();
     if (s) renderQuiz();
+  });
+
+  $('repeatLastTestBtn').addEventListener('click', () => {
+    const lastMode = getEffectiveLastMode();
+    if (!lastMode) return;
+    const existing = loadSession();
+    if (existing && existing.currentIndex < existing.words.length) {
+      if (!confirm('進行中のクイズがあります。新しく始めると進捗は失われます。続けますか？')) return;
+    }
+    clearSession();
+    if (lastMode === 'custom') startCustomSession();
+    else startNewSession(lastMode);
   });
 
   $('exportCsvBtn').addEventListener('click', exportWordsCsv);
