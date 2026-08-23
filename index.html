@@ -17,6 +17,8 @@
   <section id="home" class="screen">
     <h1>英単語クイズ</h1>
 
+    <button id="resumeBtn" class="resume-btn" hidden>前回の続きから</button>
+
     <div class="feature-nav">
       <button type="button" id="goWaeiBtn" class="link-btn">→ 和英表現練習</button>
       <button type="button" id="goWordsRegisterBtn" class="link-btn">➕ 単語を直接登録</button>
@@ -72,7 +74,6 @@
         <input type="file" id="fileInput" accept=".xlsm,.xlsx,.xls" hidden>
         データ再取り込み（Supabaseに追加登録）
       </label>
-      <button id="resumeBtn" class="secondary" hidden>前回の続きから</button>
       <button type="button" id="exportCsvBtn" class="secondary">📥 CSVダウンロード（バックアップ）</button>
     </div>
 
@@ -196,10 +197,14 @@
       <h2 style="margin:0;">全データ閲覧</h2>
       <span></span>
     </header>
-    <p id="wordsTableCount" class="muted"></p>
+    <div class="table-toolbar">
+      <p id="wordsTableCount" class="muted"></p>
+      <button type="button" id="wordsTableDeleteBtn" class="table-delete-btn" disabled>🗑 選択した単語を削除（<span id="wordsTableSelectedCount">0</span>件）</button>
+    </div>
     <div class="table-scroll">
       <table id="wordsTable" class="data-table">
         <colgroup>
+          <col class="col-select">
           <col class="col-no">
           <col class="col-en">
           <col class="col-ja">
@@ -208,6 +213,7 @@
         </colgroup>
         <thead>
           <tr>
+            <th><input type="checkbox" id="wordsTableSelectAll" title="このページを全選択"></th>
             <th>No.（クリックで編集）</th>
             <th>English</th>
             <th>日本語</th>
@@ -261,6 +267,8 @@
   <section id="waeiHome" class="screen" hidden>
     <h1>和英表現練習</h1>
 
+    <button id="waeiResumeBtn" class="secondary" hidden style="margin-bottom:16px;">前回の続きから</button>
+
     <div class="data-status">
       <p id="waeiCountText"></p>
     </div>
@@ -282,7 +290,6 @@
 
     <div class="footer-buttons">
       <button id="waeiManageBtn" class="secondary">問題を登録・編集する</button>
-      <button id="waeiResumeBtn" class="secondary" hidden>前回の続きから</button>
     </div>
 
     <p id="waeiErrorMsg" class="error"></p>
@@ -299,7 +306,7 @@
       <h2 style="margin:0;">更改メモ</h2>
       <span></span>
     </header>
-    <p class="muted">アプリの仕様・制約・今後の検討事項などを自由に書き留めておく場所です（単語データ・和英表現とは別管理）。<br>※このブラウザ（端末）にのみ保存され、他の端末・ブラウザとは共有されません。</p>
+    <p class="muted">アプリの仕様・制約・今後の検討事項などを自由に書き留めておく場所です（単語データ・和英表現とは別管理）。<br>※このPC上のnotes.jsonファイルに保存されます。ローカルサーバー(node server.js)経由でアクセスした場合のみ閲覧・編集でき、GitHub Pages版などでは利用できません。</p>
 
     <div id="notesAddBox" class="waei-form-box">
       <textarea id="notesInput" class="waei-textarea" rows="3" placeholder="メモを入力"></textarea>

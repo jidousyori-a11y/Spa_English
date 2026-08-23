@@ -276,6 +276,22 @@ h2 {
 }
 .secondary:active { background: #eef2f9; }
 
+.resume-btn {
+  display: block;
+  width: 100%;
+  background: #facc15;
+  color: #713f12;
+  border: 1px solid #eab308;
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.resume-btn:active { background: #eab308; }
+
 .error {
   color: #dc2626;
   text-align: center;
@@ -598,6 +614,28 @@ h2 {
   margin: 24px 0;
 }
 
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.table-toolbar .muted { margin: 0; }
+
+.table-delete-btn {
+  background: #fff;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.table-delete-btn:disabled { opacity: .5; cursor: not-allowed; }
+.table-delete-btn:active:not(:disabled) { background: #fef2f2; }
+
 .table-scroll {
   overflow-x: auto;
   border: 1px solid #e2e8f0;
@@ -613,6 +651,7 @@ h2 {
   font-size: 14px;
   white-space: nowrap;
 }
+.data-table col.col-select { width: 32px; }
 .data-table col.col-no { width: 64px; }
 .data-table col.col-en { width: 30%; }
 .data-table col.col-ja { width: 48%; }
@@ -700,6 +739,8 @@ h2 {
   .ai-btn:hover:not(:disabled) { background: #ecfeff; }
   .file-btn:hover { background: #dbe4f0; }
   .secondary:hover { background: #eef2f9; }
+  .table-delete-btn:hover:not(:disabled) { background: #fef2f2; }
+  .resume-btn:hover { background: #eab308; }
 
   .english { font-size: 32px; }
   .japanese-question { font-size: 28px; }

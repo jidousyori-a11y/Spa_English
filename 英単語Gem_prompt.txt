@@ -1,0 +1,41 @@
+末尾に示す英単語・フレーズのリストについて、以下の形式で日本語訳を簡潔に示してください。
+
+## 出力形式
+- 1行＝1語（または1フレーズ）
+- 「英語 :: 日本語の意味」で出力
+- 前後に余計な言葉をいれず、出力そのもののみを表示する
+- スペルミスがある場合は、修正した正しいスペルを左側に置く
+- その場合のみ、行末に「（##スペル修正有）」を付ける
+- 余計な空行は入れない
+- 不自然だが意味が通じる場合は、日本語側に簡潔に注記する
+
+## 入出力例
+### 入力例
+from bearich to doomsday
+quadripled
+bamboozle ...
+glaucoma
+prolific amount of
+hervibore
+carnibore
+excrement
+tract of ...
+urinate
+aibly
+pandemoium
+
+### 出力例
+from bearish to doomsday :: 弱気から終末論的な悲観まで （##スペル修正有）
+quadrupled :: 4倍になった （##スペル修正有）
+bamboozle :: ...をだます；煙に巻く
+glaucoma :: 緑内障
+prolific amount of ... :: 非常に多量の（※やや不自然だが意味は通じる）
+herbivore :: 草食動物 （##スペル修正有）
+carnivore :: 肉食動物 （##スペル修正有）
+excrement :: 排泄物；糞便
+tract of ... :: （土地・消化管などの）一区画／?の管
+urinate :: 排尿する
+ably :: 有能に；巧みに （##スペル修正有）
+pandemonium :: 大混乱；修羅場 （##スペル修正有）
+
+##入力単語

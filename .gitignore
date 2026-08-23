@@ -3,3 +3,5 @@ server_err.log
 node_modules/
 append_log.txt
 *.csv
+# 更改メモの本体。GitHub Pages(公開リポジトリ)には出さず、このPCのみに置く。
+notes.json

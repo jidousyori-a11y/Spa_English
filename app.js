@@ -7,7 +7,6 @@ const LS_CUSTOM = 'eiwq.custom.v1';
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
-const LS_NOTES = 'eiwq.notes.v1'; // 更改メモの本体。Supabaseには保持せず、端末のlocalStorageのみで管理する。
 const SHEET_NAME = 'Wrk';
 const QUIZ_SIZE = 15;
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -74,9 +73,15 @@ async function refreshWords() {
 async function refreshExpressions() {
   expressions = await fetchAllRows('expressions', 'created_at');
 }
-function refreshNotes() {
-  try { notes = JSON.parse(localStorage.getItem(LS_NOTES)) || []; }
-  catch { notes = []; }
+async function refreshNotes() {
+  try {
+    const res = await fetch('notes.json', { cache: 'no-store' });
+    if (!res.ok) { notes = []; return; }
+    const data = await res.json();
+    notes = Array.isArray(data.notes) ? data.notes : [];
+  } catch {
+    notes = [];
+  }
 }
 
 function renderStatusBar(state, msg) {
@@ -553,6 +558,15 @@ const WORDS_TABLE_PAGE_SIZE = 100;
 let wordsTablePage = 0;
 let wordsTableTotalPages = 1;
 
+// 全データ閲覧での複数選択削除用。選択状態は表示中のページ内でのみ保持し、
+// ページ遷移（削除後の再読み込みも含む）のたびにクリアする。
+let selectedWordIds = new Set();
+
+function updateWordsTableDeleteBtn() {
+  $('wordsTableSelectedCount').textContent = String(selectedWordIds.size);
+  $('wordsTableDeleteBtn').disabled = selectedWordIds.size === 0;
+}
+
 async function loadWordsTablePage(page) {
   const tbody = $('wordsTableBody');
   const errorEl = $('wordsTableError');
@@ -565,6 +579,9 @@ async function loadWordsTablePage(page) {
   errorEl.textContent = '';
   prevBtn.disabled = true;
   nextBtn.disabled = true;
+  selectedWordIds.clear();
+  $('wordsTableSelectAll').checked = false;
+  updateWordsTableDeleteBtn();
 
   const from = page * WORDS_TABLE_PAGE_SIZE;
   const to = from + WORDS_TABLE_PAGE_SIZE - 1;
@@ -585,21 +602,53 @@ async function loadWordsTablePage(page) {
     pageInput.placeholder = String(page + 1);
     pageInput.max = String(wordsTableTotalPages);
 
-    tbody.innerHTML = data.map(w => `
+    // No.は実データのrow列の値ではなく、表示専用の通し番号（新しいものほど大きい番号に
+    // なるよう全件数から逆算する）。削除してもrow列自体は詰めないため、Excel差分取り込み
+    // (english_spabase_updateスキル)が前提とする「row値=Excel行番号」の対応関係は崩れない。
+    tbody.innerHTML = data.map((w, i) => {
+      const displayNo = (count || 0) - (from + i);
+      return `
       <tr>
-        <td><button type="button" class="row-edit-link" data-id="${w.id}">${w.row ?? ''}</button></td>
+        <td><input type="checkbox" class="row-select" data-id="${w.id}"></td>
+        <td><button type="button" class="row-edit-link" data-id="${w.id}" data-displayno="${displayNo}">${displayNo}</button></td>
         <td class="wrap">${escapeHtml(w.en)}</td>
         <td class="wrap">${escapeHtml(w.ja)}</td>
         <td>${escapeHtml(w.marker)}</td>
         <td class="ai-note-flag">${w.ai_note ? '✅' : ''}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
 
     prevBtn.disabled = page <= 0;
     nextBtn.disabled = page >= wordsTableTotalPages - 1;
   } catch (err) {
     errorEl.textContent = '読み込みに失敗しました: ' + err.message;
     tbody.innerHTML = '';
+  }
+}
+
+// 選択中の単語をまとめて削除する。削除後は同じページを再読み込みし、
+// そのページが空になった場合（末尾ページの残り全件を削除した等）は1つ前へ戻る。
+async function deleteSelectedWords() {
+  const ids = [...selectedWordIds];
+  if (!ids.length) return;
+  if (!confirm(`選択した${ids.length}件の単語を削除します。元に戻せません。よろしいですか？`)) return;
+
+  const errorEl = $('wordsTableError');
+  errorEl.textContent = '';
+  $('wordsTableDeleteBtn').disabled = true;
+  try {
+    await apiFetch('/api/words/delete-bulk', { method: 'POST', body: JSON.stringify({ ids }) });
+    const idSet = new Set(ids);
+    words = words.filter(w => !idSet.has(w.id));
+
+    await loadWordsTablePage(wordsTablePage);
+    if ($('wordsTableBody').children.length === 0 && wordsTablePage > 0) {
+      await loadWordsTablePage(wordsTablePage - 1);
+    }
+  } catch (err) {
+    errorEl.textContent = '削除に失敗しました: ' + err.message;
+    updateWordsTableDeleteBtn();
   }
 }
 
@@ -625,7 +674,9 @@ function renderWordsTableView() {
 
 let wordEditId = null;
 
-async function openWordEditFromTable(id) {
+// displayNoは呼び出し元(全データ閲覧の行)が表示していた通し番号。渡された場合は
+// DB上のrow値ではなくこちらを見出しに使い、テーブルの表示と食い違わないようにする。
+async function openWordEditFromTable(id, displayNo) {
   wordEditId = id;
   const errorEl = $('wordEditError');
   const statusEl = $('wordEditStatus');
@@ -642,7 +693,7 @@ async function openWordEditFromTable(id) {
       .single();
     if (error) throw error;
 
-    $('wordEditRowLabel').textContent = `# ${data.row ?? ''}`;
+    $('wordEditRowLabel').textContent = `# ${displayNo ?? data.row ?? ''}`;
     $('wordEditEn').value = data.en || '';
     $('wordEditJa').value = data.ja || '';
     $('wordEditMarker').value = data.marker || '';
@@ -809,28 +860,33 @@ function pickWords(allWords, mode, latestAddedCount) {
 }
 
 // ================================================================
-// 更改メモ（単語データ・和英表現とは完全に独立。データ本体はブラウザのlocalStorageのみで
-// 保持する（Supabaseには保持しない）。端末・ブラウザごとに独立し、同期はされない。
+// 更改メモ（単語データ・和英表現とは完全に独立）。
+// このAI_Experiment配下の他アプリ(登山PDCAサイクル等)と共通のnotes.jsonパターンで
+// 保持する。Supabase・localStorageのいずれにも保持しない。読み込みはnotes.jsonを
+// 静的ファイルとしてそのままGETし、保存は配列まるごとをPOST /api/notes/save に
+// 渡して上書きする（単一ユーザーが手動編集する小さなメモ一覧なのでこの単純な方式で
+// 十分。words/expressions等の複数レコードAPIとは方針が異なる）。
 // ================================================================
 
-function saveNotesToStorage(list) {
-  localStorage.setItem(LS_NOTES, JSON.stringify(list));
+async function saveNotesToFile(list) {
+  await apiFetch('/api/notes/save', { method: 'POST', body: JSON.stringify({ notes: list }) });
 }
 
-function addNoteItem(text) {
-  const list = [...notes, { id: crypto.randomUUID(), text, created_at: new Date().toISOString() }];
-  saveNotesToStorage(list);
-  refreshNotes();
+async function addNoteItem(text) {
+  const nextId = notes.reduce((max, n) => Math.max(max, n.id), 0) + 1;
+  const list = [...notes, { id: nextId, text, createdAt: new Date().toISOString() }];
+  await saveNotesToFile(list);
+  notes = list;
 }
-function updateNoteItem(id, text) {
+async function updateNoteItem(id, text) {
   const list = notes.map(n => (n.id === id ? { ...n, text } : n));
-  saveNotesToStorage(list);
-  refreshNotes();
+  await saveNotesToFile(list);
+  notes = list;
 }
-function deleteNoteItem(id) {
+async function deleteNoteItem(id) {
   const list = notes.filter(n => n.id !== id);
-  saveNotesToStorage(list);
-  refreshNotes();
+  await saveNotesToFile(list);
+  notes = list;
 }
 
 function renderNotesList() {
@@ -876,7 +932,7 @@ function renderNotesList() {
     } else {
       const dateDiv = document.createElement('div');
       dateDiv.className = 'waei-item-ja';
-      dateDiv.textContent = new Date(n.created_at).toLocaleString('ja-JP');
+      dateDiv.textContent = new Date(n.createdAt).toLocaleString('ja-JP');
 
       const textDiv = document.createElement('div');
       textDiv.className = 'waei-item-en';
@@ -1245,7 +1301,8 @@ function renderHome() {
   const resumeBtn = $('resumeBtn');
   if (session && session.words && session.currentIndex < session.words.length) {
     resumeBtn.hidden = false;
-    resumeBtn.textContent = `前回の続きから（${session.modeLabel} / ${session.round}周目 ${session.currentIndex + 1}/${session.words.length}）`;
+    // ボタン本体は短く「前回の続きから」のみとし、状況の詳細はホバー時のツールチップ(title)で示す。
+    resumeBtn.title = `${session.modeLabel} / ${session.round}周目 ${session.currentIndex + 1}/${session.words.length}`;
   } else {
     resumeBtn.hidden = true;
   }
@@ -1824,8 +1881,29 @@ function bindEvents() {
   // 行は都度innerHTMLで再生成されるため、tbody自体にイベント委任する。
   $('wordsTableBody').addEventListener('click', (e) => {
     const btn = e.target.closest('.row-edit-link');
-    if (btn) openWordEditFromTable(Number(btn.dataset.id));
+    if (btn) openWordEditFromTable(Number(btn.dataset.id), btn.dataset.displayno);
   });
+  $('wordsTableBody').addEventListener('change', (e) => {
+    const cb = e.target.closest('.row-select');
+    if (!cb) return;
+    const id = Number(cb.dataset.id);
+    if (cb.checked) selectedWordIds.add(id);
+    else selectedWordIds.delete(id);
+    updateWordsTableDeleteBtn();
+    const all = [...document.querySelectorAll('#wordsTableBody .row-select')];
+    $('wordsTableSelectAll').checked = all.length > 0 && all.every(c => c.checked);
+  });
+  $('wordsTableSelectAll').addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    document.querySelectorAll('#wordsTableBody .row-select').forEach(cb => {
+      cb.checked = checked;
+      const id = Number(cb.dataset.id);
+      if (checked) selectedWordIds.add(id);
+      else selectedWordIds.delete(id);
+    });
+    updateWordsTableDeleteBtn();
+  });
+  $('wordsTableDeleteBtn').addEventListener('click', deleteSelectedWords);
 
   $('wordEditBackBtn').addEventListener('click', () => {
     showScreen('wordsTableView');
@@ -1944,7 +2022,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
-  refreshNotes(); // localStorage由来のため、Supabaseの接続状況に関わらず常に読み込む
+  await refreshNotes(); // notes.json由来のため、Supabaseの接続状況に関わらず常に読み込む
   if (!window.SUPABASE_URL || window.SUPABASE_URL === 'YOUR_SUPABASE_URL') {
     renderStatusBar('unconfigured');
     return;
