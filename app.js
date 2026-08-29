@@ -8,6 +8,7 @@ const LS_LAST_MODE = 'eiwq.lastMode.v1'; // 「前回と同じテスト」用。
 const LS_GEMINI_KEY = 'eiwq.geminiKey.v1';
 const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本体はSupabase側が正。
 const LS_WAEI_SESSION = 'waei.session.v1';
+const LS_CLEAR_SAVE_ERROR = 'eiwq.clearSaveError.v1'; // クリア記録の保存に失敗した際、ホーム画面に警告を出し続けるための記録。
 const SHEET_NAME = 'Wrk';
 const QUIZ_SIZE = 15;
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -204,9 +205,26 @@ async function recordLatestClear() {
   try {
     await apiFetch('/api/latest-clears', { method: 'POST', body: JSON.stringify({ date: today, exempted: false }) });
     latestClearDates = [{ date: today, exempted: false }, ...latestClearDates.filter(d => d.date !== today)];
+    localStorage.removeItem(LS_CLEAR_SAVE_ERROR);
     renderLatestStreak();
-  } catch {
-    // ローカルサーバー未起動環境(GitHub Pages等)では記録できないが、クイズ自体は進行させる。
+  } catch (err) {
+    // ローカルサーバー未起動環境(GitHub Pages等)や、接続不調などで記録に失敗した場合、
+    // クイズ自体はそのまま進行させるが、無音のまま終わらせない。2026-08-19・08-28に
+    // 記録漏れに数日気づけなかった事故が2度発生したため、次にホームへ戻った時に
+    // 気づけるよう警告を残しておく（renderClearSaveErrorで表示、成功時か手動確認で消える）。
+    localStorage.setItem(LS_CLEAR_SAVE_ERROR, JSON.stringify({ date: today, message: err.message }));
+  }
+}
+
+function renderClearSaveError() {
+  const box = $('clearSaveErrorBox');
+  let info = null;
+  try { info = JSON.parse(localStorage.getItem(LS_CLEAR_SAVE_ERROR)); } catch { info = null; }
+  if (info && info.date) {
+    box.hidden = false;
+    $('clearSaveErrorText').textContent = `⚠️ ${info.date}のクリア記録の保存に失敗しました（${info.message}）。ローカルサーバーに接続できているか確認してください。`;
+  } else {
+    box.hidden = true;
   }
 }
 
@@ -1366,6 +1384,7 @@ function renderHome() {
   }
 
   renderLatestStreak();
+  renderClearSaveError();
 
   $('errorMsg').textContent = '';
   renderAiKeyStatus();
@@ -1844,6 +1863,10 @@ function bindEvents() {
 
   $('markerTestStartBtn').addEventListener('click', startMarkerTest);
   $('latest50ExemptBtn').addEventListener('click', exemptToday);
+  $('clearSaveErrorDismissBtn').addEventListener('click', () => {
+    localStorage.removeItem(LS_CLEAR_SAVE_ERROR);
+    renderClearSaveError();
+  });
 
   $('resumeBtn').addEventListener('click', () => {
     const s = loadSession();

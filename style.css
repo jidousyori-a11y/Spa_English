@@ -75,6 +75,32 @@ h2 {
   margin-bottom: 20px;
 }
 
+.clear-save-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.clear-save-error button {
+  background: #fff;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.clear-save-error button:active { background: #fee2e2; }
+
 .data-status p { margin: 4px 0; font-size: 14px; }
 .muted { color: #64748b; font-size: 12px; }
 
