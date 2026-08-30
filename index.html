@@ -51,6 +51,7 @@
       <button class="mode-btn" data-mode="bottom300">下から300単語からランダムに15個</button>
       <button class="mode-btn" data-mode="bottom100">下から100単語からランダムに15個</button>
       <button type="button" id="latest50ExemptBtn" class="link-btn" style="text-align:center;">🙅 今日は免除にする（特別な理由がある場合）</button>
+      <button type="button" id="latest50ManualRecordBtn" class="link-btn" style="text-align:center;">✅ 実施済みなのに記録されていない場合はこちら</button>
     </div>
 
     <!-- マーカー(D列)付き単語のテスト。存在するマーカーの分だけチェックボックスをJSが動的に生成する -->
@@ -159,6 +160,7 @@
   <section id="result" class="screen" hidden>
     <h2 id="resultTitle"></h2>
     <p id="resultDetail"></p>
+    <p id="resultClearStatus" class="muted" hidden></p>
     <ul id="wrongList" class="wrong-list"></ul>
     <div class="footer-buttons">
       <button id="nextRoundBtn" class="primary">次の周へ</button>

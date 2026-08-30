@@ -21,6 +21,16 @@ const SUPABASE_URL = 'https://owuwhpfybfozzlovmehl.supabase.co';
 const WORD_NOTE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-note.md');
 const WORD_TRANSLATE_PROMPT_FILE = path.join(ROOT, 'prompts', 'word-translate.md');
 const NOTES_FILE = path.join(ROOT, 'notes.json');
+const LATEST_CLEARS_LOG_FILE = path.join(ROOT, 'latest-clears.log');
+
+// Latest単語モードの連続達成記録は、2026-08-19・08-28・08-30と原因不明の記録漏れが
+// 繰り返し発生しているため、後から「サーバーに届いていたか／届いた上で失敗したか」を
+// 切り分けられるよう、リクエストごとに追記していく（成功・失敗どちらも記録する）。
+function logLatestClearAttempt(req, entry) {
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').toString();
+  const line = JSON.stringify({ ts: new Date().toISOString(), ip, ...entry }) + '\n';
+  fs.appendFile(LATEST_CLEARS_LOG_FILE, line, () => {}); // ログ書き込み自体の失敗で本処理を止めない
+}
 
 // プロンプトはコードから切り離し、prompts/*.md から都度読み込む
 // (サーバー再起動なしで文面を調整できる)。
@@ -371,11 +381,13 @@ async function handleLatestClearsCreate(req, res) {
   try {
     payload = await readJsonBody(req);
   } catch {
+    logLatestClearAttempt(req, { ok: false, stage: 'parse', error: 'リクエストの形式が不正です' });
     sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
     return;
   }
   const date = (payload.date || '').toString().trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    logLatestClearAttempt(req, { ok: false, stage: 'validate', date, error: '日付の形式が不正です' });
     sendJson(res, 400, { error: '日付の形式が不正です(YYYY-MM-DD)。' });
     return;
   }
@@ -387,8 +399,10 @@ async function handleLatestClearsCreate(req, res) {
       headers: { 'Prefer': 'resolution=ignore-duplicates,return=representation' },
       body: JSON.stringify({ cleared_date: date, exempted, reason }),
     });
+    logLatestClearAttempt(req, { ok: true, date, exempted });
     sendJson(res, 200, { ok: true });
   } catch (err) {
+    logLatestClearAttempt(req, { ok: false, stage: 'supabase', date, exempted, error: err.message });
     handleSupabaseError(res, err);
   }
 }

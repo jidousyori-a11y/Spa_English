@@ -199,20 +199,23 @@ function isStreakEligible(session) {
 
 // 対象セッションが全問正解でクリアされた時点で呼ぶ。同じ日に複数回
 // クリアしても連続日数は増やさない（1日1カウント、Supabase側でも on_conflict で防止）。
+// 呼び出し元(結果画面)がその場で保存結果を表示できるよう、{saved, alreadyRecorded?, error?}を返す。
 async function recordLatestClear() {
   const today = toDateStr(new Date());
-  if (latestClearDates[0] && latestClearDates[0].date === today) return;
+  if (latestClearDates[0] && latestClearDates[0].date === today) return { saved: true, alreadyRecorded: true };
   try {
     await apiFetch('/api/latest-clears', { method: 'POST', body: JSON.stringify({ date: today, exempted: false }) });
     latestClearDates = [{ date: today, exempted: false }, ...latestClearDates.filter(d => d.date !== today)];
     localStorage.removeItem(LS_CLEAR_SAVE_ERROR);
     renderLatestStreak();
+    return { saved: true };
   } catch (err) {
     // ローカルサーバー未起動環境(GitHub Pages等)や、接続不調などで記録に失敗した場合、
-    // クイズ自体はそのまま進行させるが、無音のまま終わらせない。2026-08-19・08-28に
-    // 記録漏れに数日気づけなかった事故が2度発生したため、次にホームへ戻った時に
-    // 気づけるよう警告を残しておく（renderClearSaveErrorで表示、成功時か手動確認で消える）。
+    // クイズ自体はそのまま進行させるが、無音のまま終わらせない。2026-08-19・08-28・08-30に
+    // 記録漏れに気づけなかった事故が繰り返し発生したため、ホーム画面の警告に加え、
+    // この結果画面その場でも保存結果を表示する(renderRoundResult側)。
     localStorage.setItem(LS_CLEAR_SAVE_ERROR, JSON.stringify({ date: today, message: err.message }));
+    return { saved: false, error: err.message };
   }
 }
 
@@ -247,6 +250,28 @@ async function exemptToday() {
     renderLatestStreak();
   } catch (err) {
     alert('免除の登録に失敗しました: ' + err.message);
+  }
+}
+
+// 「実施済みなのに記録されていない場合」ボタンから呼ぶ。自動記録(recordLatestClear)が
+// 何らかの理由で失敗・スキップされた場合の保険。免除(exemptToday)とは異なりexempted:falseの
+// 通常クリアとして記録する（実際にテストを完了したことをユーザー自身が確認した前提）。
+async function manualRecordToday() {
+  const today = toDateStr(new Date());
+  if (latestClearDates[0] && latestClearDates[0].date === today) {
+    alert('今日の分は既に記録されています。');
+    return;
+  }
+  if (!confirm('今日、対象のテスト（Latest単語/完全ランダム/下から300/下から100/15問以上のカスタム設定のいずれか）を実際に完了している場合のみ押してください。連続記録に今日の日付を追加します。よろしいですか？')) return;
+  try {
+    await apiFetch('/api/latest-clears', { method: 'POST', body: JSON.stringify({ date: today, exempted: false }) });
+    latestClearDates = [{ date: today, exempted: false }, ...latestClearDates.filter(d => d.date !== today)];
+    localStorage.removeItem(LS_CLEAR_SAVE_ERROR);
+    renderLatestStreak();
+    renderClearSaveError();
+    alert('記録しました。');
+  } catch (err) {
+    alert('記録に失敗しました: ' + err.message);
   }
 }
 
@@ -1770,18 +1795,39 @@ function judge(isCorrect) {
 
 // ---------- Round result ----------
 
-function renderRoundResult() {
+async function renderRoundResult() {
   const session = loadSession();
   if (!session) { renderHome(); return; }
   const wrongs = session.wrongIndices.map(i => session.words[i]);
   const allCorrect = wrongs.length === 0;
+  const statusEl = $('resultClearStatus');
+  statusEl.hidden = true;
+  statusEl.textContent = '';
 
   if (allCorrect) {
-    if (isStreakEligible(session)) recordLatestClear();
     $('resultTitle').textContent = `🎉 ${session.round}周目で全問正解！クリアです`;
     $('resultDetail').textContent = `${session.words.length} 問すべて正解しました。お疲れさまでした。`;
     $('wrongList').innerHTML = '';
     $('nextRoundBtn').hidden = true;
+    showScreen('result');
+
+    // 連続記録の保存を待ってから、この結果画面その場で結果を表示する。ホーム画面に
+    // 戻った後や、別のタブ/画面に離脱した後まで結果が確定しない状態を避けるため
+    // （2026-08-19・08-28・08-30、保存の成否に気づけないまま画面を離れて記録漏れに
+    // 気づけなかった事故が繰り返し発生したための対応）。
+    if (isStreakEligible(session)) {
+      statusEl.hidden = false;
+      statusEl.textContent = '連続記録を保存中…';
+      const result = await recordLatestClear();
+      // 保存中に別画面へ移動していた場合、この結果画面の要素を今さら書き換えても
+      // 実害は無い(非表示のまま)ので、画面遷移チェックはせずそのまま更新する。
+      if (result.saved) {
+        statusEl.hidden = true;
+      } else {
+        statusEl.hidden = false;
+        statusEl.textContent = `⚠️ 連続記録の保存に失敗しました（${result.error}）。ホーム画面の警告、または「実施済みなのに記録されていない場合」ボタンから対応してください。`;
+      }
+    }
   } else {
     $('resultTitle').textContent = `${session.round}周目 結果`;
     $('resultDetail').textContent = `正解 ${session.words.length - wrongs.length} / ${session.words.length}　不正解 ${wrongs.length} 個`;
@@ -1800,8 +1846,8 @@ function renderRoundResult() {
       ul.appendChild(li);
     }
     $('nextRoundBtn').hidden = false;
+    showScreen('result');
   }
-  showScreen('result');
 }
 
 function nextRound() {
@@ -1863,6 +1909,7 @@ function bindEvents() {
 
   $('markerTestStartBtn').addEventListener('click', startMarkerTest);
   $('latest50ExemptBtn').addEventListener('click', exemptToday);
+  $('latest50ManualRecordBtn').addEventListener('click', manualRecordToday);
   $('clearSaveErrorDismissBtn').addEventListener('click', () => {
     localStorage.removeItem(LS_CLEAR_SAVE_ERROR);
     renderClearSaveError();
