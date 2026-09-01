@@ -191,9 +191,16 @@ function computeLatestStreak(datesDesc) {
 // 連続達成日数の対象となるセッションかどうかを判定する。
 // - 上部4モード（Latest単語／完全ランダム／下から300／下から100）は常に対象
 // - 一番下のカスタム設定テストは、出題数が15問以上の場合のみ対象
+//
+// 判定には session.originalCount（セッション開始時の出題数、nextRound()を挟んでも
+// 不変）を使う。session.words.length ではない点に注意：nextRound()は間違えた問題だけに
+// words を差し替えるため、1問でも間違えて2周目に入ると words.length が15を割り込み、
+// 最終的に全問正解でクリアしても記録されなくなるバグが2026-08-28・08-30・09-01と
+// 繰り返し発生していた（session.words.lengthで判定していたのが原因）。
 function isStreakEligible(session) {
   if (['latest50', 'all', 'bottom300', 'bottom100'].includes(session.mode)) return true;
-  if (session.mode === 'custom' && session.words.length >= 15) return true;
+  const count = session.originalCount ?? session.words.length;
+  if (session.mode === 'custom' && count >= 15) return true;
   return false;
 }
 
@@ -1443,6 +1450,7 @@ function startCustomSession() {
     round: 1,
     currentIndex: 0,
     words: shuffle(pool).slice(0, n),
+    originalCount: n, // isStreakEligibleの判定用。nextRound()で words が縮んでも変えない。
     wrongIndices: [],
     revealed: false,
   };
@@ -1461,6 +1469,7 @@ function startNewSession(mode) {
     round: 1,
     currentIndex: 0,
     words: picked,
+    originalCount: picked.length,
     wrongIndices: [],
     revealed: false,
   };
