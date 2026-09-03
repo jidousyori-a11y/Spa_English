@@ -666,7 +666,7 @@ async function loadWordsTablePage(page) {
     // データ番号(row)の降順 = 直近に登録されたものが1ページ目の先頭に来る。
     const { data, error, count } = await sb
       .from('words')
-      .select('id, row, en, ja, marker, ai_note', { count: 'exact' })
+      .select('id, row, en, ja, marker, ai_note, selected_count, tested_count, wrong_count', { count: 'exact' })
       .order('row', { ascending: false })
       .range(from, to);
     if (error) throw error;
@@ -683,6 +683,7 @@ async function loadWordsTablePage(page) {
     // (english_spabase_updateスキル)が前提とする「row値=Excel行番号」の対応関係は崩れない。
     tbody.innerHTML = data.map((w, i) => {
       const displayNo = (count || 0) - (from + i);
+      const wrongRate = w.tested_count > 0 ? `${(w.wrong_count / w.tested_count * 100).toFixed(1)}%` : '—';
       return `
       <tr>
         <td><input type="checkbox" class="row-select" data-id="${w.id}"></td>
@@ -691,6 +692,8 @@ async function loadWordsTablePage(page) {
         <td class="wrap">${escapeHtml(w.ja)}</td>
         <td>${escapeHtml(w.marker)}</td>
         <td class="ai-note-flag">${w.ai_note ? '✅' : ''}</td>
+        <td>${w.selected_count ?? 0}</td>
+        <td>${wrongRate}</td>
       </tr>
     `;
     }).join('');

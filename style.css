@@ -692,6 +692,8 @@ h2 {
 .data-table col.col-ja { width: 48%; }
 .data-table col.col-marker { width: 90px; }
 .data-table col.col-ainote { width: 74px; }
+.data-table col.col-selectedcount { width: 74px; }
+.data-table col.col-wrongrate { width: 74px; }
 .data-table th, .data-table td {
   padding: 8px 10px;
   border: 1px solid #cbd5e1;
