@@ -222,6 +222,47 @@ async function handleWordsDeleteBulk(req, res) {
   }
 }
 
+// POST /api/words/increment-stats
+//   { updates: [{ id, selected?, tested?, wrong? }, ...] }
+// → 単語ごとの出題統計(selected_count/tested_count/wrong_count)を加算する。
+// 画面表示は無い内部データのため、失敗しても致命的ではない(呼び出し側もfire-and-forget)。
+// increment_word_stats RPC(add_word_stats_columns.sql参照)でSQL側の演算として
+// 加算するため、複数端末からの同時アクセスでも欠落しない。
+async function handleWordsIncrementStats(req, res) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  const updates = Array.isArray(payload.updates) ? payload.updates : [];
+  if (updates.length === 0) {
+    sendJson(res, 200, { ok: true, applied: 0 });
+    return;
+  }
+  let applied = 0;
+  const errors = [];
+  for (const u of updates) {
+    const id = Number(u.id);
+    if (!Number.isFinite(id)) continue;
+    const selected = Number(u.selected) || 0;
+    const tested = Number(u.tested) || 0;
+    const wrong = Number(u.wrong) || 0;
+    if (!selected && !tested && !wrong) continue;
+    try {
+      await supabaseServiceRequest('/rpc/increment_word_stats', {
+        method: 'POST',
+        body: JSON.stringify({ p_id: id, p_selected: selected, p_tested: tested, p_wrong: wrong }),
+      });
+      applied += 1;
+    } catch (err) {
+      errors.push({ id, error: err.message });
+    }
+  }
+  sendJson(res, 200, { ok: true, applied, errors });
+}
+
 // POST /api/expressions  { ja, en } → expressions に1件insert
 async function handleExpressionsCreate(req, res) {
   let payload;
@@ -567,6 +608,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'POST' && urlPath === '/api/words/delete-bulk') {
     handleWordsDeleteBulk(req, res);
+    return;
+  }
+  if (req.method === 'POST' && urlPath === '/api/words/increment-stats') {
+    handleWordsIncrementStats(req, res);
     return;
   }
   if (req.method === 'POST' && urlPath === '/api/latest-clears') {

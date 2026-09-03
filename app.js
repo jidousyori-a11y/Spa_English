@@ -1435,6 +1435,36 @@ function renderAiKeyStatus() {
 
 // ---------- Quiz ----------
 
+// 単語ごとの出題統計（テストセットに選ばれた回数／実施回数／誤答回数）。画面表示は
+// 無い内部データで、逐一サーバーへ送るとクイズの回答テンポを損なうため、セッション内で
+// メモリに溜めておき、周が終わるタイミングでまとめて送信する(flushWordStats)。
+let wordStatsBuffer = {}; // { [wordId]: { selected: 0|1, tested: number, wrong: number } }
+
+function bumpWordStat(wordId, field) {
+  if (!wordStatsBuffer[wordId]) wordStatsBuffer[wordId] = { selected: 0, tested: 0, wrong: 0 };
+  wordStatsBuffer[wordId][field] += 1;
+}
+
+// テストセットが新規に選ばれた時点(1周目開始時のみ)で呼ぶ。やり直し周(nextRound)では
+// 呼ばない — 「テストセットに選ばれた回数」は同じテスト内で重複カウントしないため。
+function markWordsSelected(sessionWords) {
+  for (const w of sessionWords) bumpWordStat(w.id, 'selected');
+}
+
+// 統計データなので、送信に失敗してもクイズ進行には影響させない(fire-and-forget)。
+async function flushWordStats() {
+  const updates = Object.entries(wordStatsBuffer)
+    .map(([id, v]) => ({ id: Number(id), ...v }))
+    .filter(u => u.selected || u.tested || u.wrong);
+  wordStatsBuffer = {};
+  if (!updates.length) return;
+  try {
+    await apiFetch('/api/words/increment-stats', { method: 'POST', body: JSON.stringify({ updates }) });
+  } catch {
+    // ローカルサーバー未起動環境等では送信できないが、無音で構わない(内部データのため)。
+  }
+}
+
 function startCustomSession() {
   if (!words.length) return;
   const x = Math.max(1, parseInt($('customX').value) || 15);
@@ -1454,6 +1484,7 @@ function startCustomSession() {
     wrongIndices: [],
     revealed: false,
   };
+  markWordsSelected(session.words);
   saveSession(session);
   renderQuiz();
 }
@@ -1473,6 +1504,7 @@ function startNewSession(mode) {
     wrongIndices: [],
     revealed: false,
   };
+  markWordsSelected(session.words);
   saveSession(session);
   renderQuiz();
 }
@@ -1842,6 +1874,11 @@ function reveal() {
 function judge(isCorrect) {
   const session = loadSession();
   if (!session) return;
+  const w = session.words[session.currentIndex];
+  if (w) {
+    bumpWordStat(w.id, 'tested');
+    if (!isCorrect) bumpWordStat(w.id, 'wrong');
+  }
   if (!isCorrect) session.wrongIndices.push(session.currentIndex);
   session.currentIndex += 1;
   session.revealed = false;
@@ -1863,6 +1900,7 @@ async function renderRoundResult() {
   const statusEl = $('resultClearStatus');
   statusEl.hidden = true;
   statusEl.textContent = '';
+  flushWordStats(); // 内部統計。クイズ進行を待たせないようawaitしない。
 
   if (allCorrect) {
     $('resultTitle').textContent = `🎉 ${session.round}周目で全問正解！クリアです`;
