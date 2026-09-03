@@ -1780,6 +1780,57 @@ async function saveAiNote() {
   }
 }
 
+// ラウンド結果画面の「間違えた単語」一覧に対して、まだAI補足が無いものだけ
+// まとめてAIへ問い合わせ、そのまま保存する。1件ずつ順番に処理する(並列にすると
+// Gemini APIのレート制限に当たりやすいため)。既にai_noteがある単語は再取得せず
+// スキップする。
+async function requestBulkAiExamplesForWrongs() {
+  const session = loadSession();
+  if (!session) return;
+  const wrongs = session.wrongIndices.map(i => session.words[i]);
+  const targets = wrongs.filter(w => !w.ai_note);
+  const skipped = wrongs.length - targets.length;
+
+  const btn = $('bulkAiExampleBtn');
+  const statusEl = $('bulkAiExampleStatus');
+  statusEl.hidden = false;
+
+  if (targets.length === 0) {
+    statusEl.textContent = `処理終了（対象 ${wrongs.length}件はすべて取得済みのためスキップしました）。`;
+    return;
+  }
+
+  btn.disabled = true;
+  const key = loadGeminiKey();
+  let done = 0;
+  let failed = 0;
+  for (const w of targets) {
+    const progress = `${done + failed + 1}/${targets.length}`;
+    btn.textContent = `処理中…（${progress}）`;
+    statusEl.textContent = `処理中…（${progress}／スキップ ${skipped}件）`;
+    try {
+      const text = key ? await callGeminiDirect(w.en, w.ja, key) : await callGeminiViaServer(w.en, w.ja);
+      await apiFetch(`/api/words/${encodeURIComponent(w.id)}/ai-note`, {
+        method: 'PATCH',
+        body: JSON.stringify({ note: text }),
+      });
+      // wはsession.words内の要素そのものへの参照なので、ここで書き換えれば
+      // セッション上のデータにも反映される(下のsaveSessionで永続化)。
+      w.ai_note = text;
+      const cached = words.find(x => x.id === w.id);
+      if (cached) cached.ai_note = text;
+      done += 1;
+    } catch (err) {
+      failed += 1;
+    }
+  }
+  saveSession(session);
+
+  btn.disabled = false;
+  btn.textContent = '🤖 AI例文一括取得';
+  statusEl.textContent = `処理終了（新規取得: ${done}件、スキップ: ${skipped}件${failed ? `、失敗: ${failed}件` : ''}）。`;
+}
+
 function reveal() {
   const session = loadSession();
   if (!session) return;
@@ -1818,6 +1869,8 @@ async function renderRoundResult() {
     $('resultDetail').textContent = `${session.words.length} 問すべて正解しました。お疲れさまでした。`;
     $('wrongList').innerHTML = '';
     $('nextRoundBtn').hidden = true;
+    $('bulkAiExampleBtn').hidden = true;
+    $('bulkAiExampleStatus').hidden = true;
     showScreen('result');
 
     // 連続記録の保存を待ってから、この結果画面その場で結果を表示する。ホーム画面に
@@ -1855,6 +1908,12 @@ async function renderRoundResult() {
       ul.appendChild(li);
     }
     $('nextRoundBtn').hidden = false;
+    const bulkBtn = $('bulkAiExampleBtn');
+    bulkBtn.hidden = false;
+    bulkBtn.disabled = false;
+    bulkBtn.textContent = '🤖 AI例文一括取得';
+    $('bulkAiExampleStatus').hidden = true;
+    $('bulkAiExampleStatus').textContent = '';
     showScreen('result');
   }
 }
@@ -1988,6 +2047,7 @@ function bindEvents() {
   });
 
   $('nextRoundBtn').addEventListener('click', nextRound);
+  $('bulkAiExampleBtn').addEventListener('click', requestBulkAiExamplesForWrongs);
   $('homeBtn').addEventListener('click', () => {
     const s = loadSession();
     if (s && s.wrongIndices && s.wrongIndices.length === 0 && s.currentIndex >= s.words.length) {
