@@ -301,7 +301,9 @@ function renderLatestStreak() {
     $('streakCount').textContent = `${streak}日連続達成中`;
     $('streakDateInfo').textContent = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
   } else {
-    $('streakCount').textContent = '連続達成なし';
+    // 連続記録が途切れている場合は、今の連続日数の代わりに、これまでの
+    // 累積達成日数（免除も含む記録件数）を示し、頑張りが消えていないことが分かるようにする。
+    $('streakCount').textContent = `連続達成なし（累計${latestClearDates.length}日達成）`;
     $('streakDateInfo').textContent = `最終クリア: ${lastDate}（途切れています）`;
   }
 }
