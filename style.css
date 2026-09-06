@@ -125,6 +125,10 @@ h2 {
   box-shadow: 0 2px 5px rgba(234, 88, 12, .35);
 }
 .streak-badge-icon { font-size: 16px; }
+.streak-badge.broken {
+  background: linear-gradient(135deg, #94a3b8, #64748b);
+  box-shadow: 0 2px 5px rgba(100, 116, 139, .35);
+}
 
 .mode-buttons {
   display: flex;

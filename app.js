@@ -282,13 +282,28 @@ async function manualRecordToday() {
   }
 }
 
+// 2026-09-06: 最終クリア日が今日/昨日から途切れている（＝間の日にクリアも免除も
+// 無い）にも関わらず、computeLatestStreak()が返す古い連続日数をそのまま
+// 「N日連続達成中」と表示し続けてしまうバグを修正。今日/昨日のいずれかで
+// 途切れていない場合のみ「達成中」とし、それ以外は連続記録が途切れている旨を表示する。
 function renderLatestStreak() {
   const { lastDate, lastExempted, streak } = computeLatestStreak(latestClearDates);
   const box = $('latestStreakBox');
   if (!lastDate) { box.hidden = true; return; }
   box.hidden = false;
-  $('streakCount').textContent = `${streak}日連続達成中`;
-  $('streakDateInfo').textContent = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
+  const today = toDateStr(new Date());
+  const yesterday = addDaysStr(today, -1);
+  const isActive = lastDate === today || lastDate === yesterday;
+  const badge = $('streakBadge');
+  badge.classList.toggle('broken', !isActive);
+  $('streakBadgeIcon').textContent = isActive ? '🔥' : '💤';
+  if (isActive) {
+    $('streakCount').textContent = `${streak}日連続達成中`;
+    $('streakDateInfo').textContent = lastExempted ? `${lastDate}は免除` : `最終クリア: ${lastDate}`;
+  } else {
+    $('streakCount').textContent = '連続達成なし';
+    $('streakDateInfo').textContent = `最終クリア: ${lastDate}（途切れています）`;
+  }
 }
 
 function loadGeminiKey() {
