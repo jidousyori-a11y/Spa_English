@@ -130,6 +130,16 @@ h2 {
   box-shadow: 0 2px 5px rgba(100, 116, 139, .35);
 }
 
+.unused-only-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
 .mode-buttons {
   display: flex;
   flex-direction: column;

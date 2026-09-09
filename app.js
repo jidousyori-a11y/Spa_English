@@ -934,7 +934,15 @@ function describeMode(mode) {
   }
 }
 
-function pickWords(allWords, mode, latestAddedCount) {
+// unusedOnly: 「出題回数0の単語のみに絞る」チェックボックスがONの場合、tested_count>0の
+// 単語(=一度でも出題したことがある単語)を候補から除外する。
+// - latest50は「最新N件をそのまま全部出す」固定集合モードなので、絞り込んだ結果を
+//   そのまま使うだけでよい(不足していても警告は不要。quizSizeを絞り込み後のpool.lengthに
+//   合わせているのはそのため)。
+// - all/bottom300/bottom100は「多数の候補からQUIZ_SIZE件をランダムに選ぶ」モードなので、
+//   絞り込んだ結果がQUIZ_SIZEに満たない場合はshortfallとして呼び出し元に知らせ、
+//   呼び出し元(startNewSession)で警告を表示する。
+function pickWords(allWords, mode, latestAddedCount, unusedOnly) {
   let pool;
   let label;
   let quizSize = QUIZ_SIZE;
@@ -944,33 +952,39 @@ function pickWords(allWords, mode, latestAddedCount) {
     pool = allWords.filter(w => w.marker && markerSet.has(w.marker));
     label = `マーカー付き単語（${markerList.map(m => MARKER_LABELS[m] || m).join('・')}）`;
     const n = Math.min(quizSize, pool.length);
-    return { words: shuffle(pool).slice(0, n), label };
+    return { words: shuffle(pool).slice(0, n), label, shortfall: null };
   }
   switch (mode) {
     case 'latest50': {
       const n = Math.max(1, latestAddedCount || 15);
       pool = allWords.slice(-n);
+      if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
       label = `Latest単語(${n}個)`;
-      quizSize = n;
+      quizSize = pool.length;
       break;
     }
     case 'all':
       pool = allWords;
+      if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
       label = '完全ランダム';
       break;
     case 'bottom300':
       pool = allWords.slice(-300);
+      if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
       label = '下から300';
       break;
     case 'bottom100':
       pool = allWords.slice(-100);
+      if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
       label = '下から100';
       break;
     default:
       throw new Error('unknown mode: ' + mode);
   }
+  const desired = quizSize;
   const n = Math.min(quizSize, pool.length);
-  return { words: shuffle(pool).slice(0, n), label };
+  const shortfall = (unusedOnly && n < desired) ? { desired, actual: n } : null;
+  return { words: shuffle(pool).slice(0, n), label, shortfall };
 }
 
 // ================================================================
@@ -1485,6 +1499,11 @@ async function flushWordStats() {
   }
 }
 
+function isUnusedOnlyChecked() {
+  const el = $('unusedOnlyCheckbox');
+  return !!(el && el.checked);
+}
+
 function startCustomSession() {
   if (!words.length) return;
   const x = Math.max(1, parseInt($('customX').value) || 15);
@@ -1492,11 +1511,20 @@ function startCustomSession() {
   saveCustomSettings(x, y);
   saveLastMode('custom');
   const effectiveY = Math.min(y, words.length);
-  const pool = words.slice(-effectiveY);
+  let pool = words.slice(-effectiveY);
+  const unusedOnly = isUnusedOnlyChecked();
+  if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
+  if (unusedOnly && pool.length === 0) {
+    alert('出題回数0の単語が見つかりませんでした。');
+    return;
+  }
   const n = Math.min(x, pool.length);
+  if (unusedOnly && n < x) {
+    alert(`出題回数0の単語は${n}個しかないため、${n}問で開始します（指定の${x}問には届きません）。`);
+  }
   const session = {
     mode: 'custom',
-    modeLabel: `最新${effectiveY}件から${n}問`,
+    modeLabel: `最新${effectiveY}件から${n}問${unusedOnly ? '（出題回数0のみ）' : ''}`,
     round: 1,
     currentIndex: 0,
     words: shuffle(pool).slice(0, n),
@@ -1513,10 +1541,18 @@ function startNewSession(mode) {
   if (!words.length) return;
   saveLastMode(mode);
   const meta = loadImportMeta();
-  const { words: picked, label } = pickWords(words, mode, meta && meta.latestAddedCount);
+  const unusedOnly = isUnusedOnlyChecked();
+  const { words: picked, label, shortfall } = pickWords(words, mode, meta && meta.latestAddedCount, unusedOnly);
+  if (unusedOnly && picked.length === 0) {
+    alert('出題回数0の単語が見つかりませんでした。');
+    return;
+  }
+  if (shortfall) {
+    alert(`出題回数0の単語は${shortfall.actual}個しかないため、${shortfall.actual}問で開始します（本来${shortfall.desired}問には届きません）。`);
+  }
   const session = {
     mode,
-    modeLabel: label,
+    modeLabel: label + (unusedOnly ? '（出題回数0のみ）' : ''),
     round: 1,
     currentIndex: 0,
     words: picked,
