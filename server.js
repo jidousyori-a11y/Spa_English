@@ -414,6 +414,37 @@ async function handleNotesSave(req, res) {
   }
 }
 
+// PUT /api/quiz-session/:key  { data: <セッションオブジェクト> | null }
+// → クイズの進行状態をDBにミラーリングする(quiz_sessions.session_key = :key を upsert)。
+// key は 'main'(英単語クイズ) / 'waei'(和英表現練習) など。複数端末をまたいで
+// 「前回の続きから」を再開できるようにするため(create_quiz_sessions_table.sql参照)。
+// 1問答えるごとに呼ばれうる高頻度な書き込みのため、失敗してもクイズ進行は止めない
+// (呼び出し側のapp.jsでもfire-and-forgetにしている)。
+async function handleQuizSessionSave(req, res, key) {
+  let payload;
+  try {
+    payload = await readJsonBody(req);
+  } catch {
+    sendJson(res, 400, { error: 'リクエストの形式が不正です。' });
+    return;
+  }
+  if (!key || key.length > 64) {
+    sendJson(res, 400, { error: 'session_keyが不正です。' });
+    return;
+  }
+  const data = (payload.data === undefined) ? null : payload.data;
+  try {
+    await supabaseServiceRequest('/quiz_sessions?on_conflict=session_key', {
+      method: 'POST',
+      headers: { 'Prefer': 'resolution=merge-duplicates,return=representation' },
+      body: JSON.stringify({ session_key: key, data, updated_at: new Date().toISOString() }),
+    });
+    sendJson(res, 200, { ok: true });
+  } catch (err) {
+    handleSupabaseError(res, err);
+  }
+}
+
 // POST /api/latest-clears  { date: 'YYYY-MM-DD', exempted?: boolean, reason?: string }
 // → その日をクリア済み(または免除)として記録する。
 // 同じ日に複数回呼ばれても(on_conflict + ignore-duplicates)行は増えない。
@@ -589,6 +620,7 @@ const server = http.createServer((req, res) => {
   const expressionMatch = urlPath.match(/^\/api\/expressions\/([^/]+)$/);
   const wordAiNoteMatch = urlPath.match(/^\/api\/words\/([^/]+)\/ai-note$/);
   const wordMatch = urlPath.match(/^\/api\/words\/([^/]+)$/);
+  const quizSessionMatch = urlPath.match(/^\/api\/quiz-session\/([^/]+)$/);
 
   if (req.method === 'POST' && urlPath === '/api/gemini-examples') {
     handleGeminiExamples(req, res);
@@ -632,6 +664,10 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'PATCH' && wordMatch) {
     handleWordsUpdate(req, res, decodeURIComponent(wordMatch[1]));
+    return;
+  }
+  if (req.method === 'PUT' && quizSessionMatch) {
+    handleQuizSessionSave(req, res, decodeURIComponent(quizSessionMatch[1]));
     return;
   }
   if (req.method === 'DELETE' && expressionMatch) {

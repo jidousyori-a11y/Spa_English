@@ -105,16 +105,92 @@ function loadImportMeta() {
 }
 function saveImportMeta(m) { localStorage.setItem(LS_IMPORT_META, JSON.stringify(m)); }
 
-// ---------- localStorage helpers（クイズ進行セッションのみ。端末ローカルの一時状態） ----------
-
+// ---------- クイズ進行セッション ----------
+// localStorageを即時反映用のキャッシュとして使いつつ、Supabase(quiz_sessionsテーブル)にも
+// ミラーリングすることで、PCで数問やって中断し、続きをiPhoneからLAN越しに行う…といった
+// クロスデバイスでの再開を可能にする(2026-09-19導入)。
+// - 1問ごとのsaveSession()はfire-and-forgetでDBへ送るのみとし、クイズ応答のテンポは
+//   localStorageの同期書き込みのままにする(await/ネットワーク待ちを挟まない)。
+// - 突き合わせ(reconcileSessionWithRemote)はinit()で一度だけ行う。session.savedAt
+//   (クライアント発行のミリ秒タイムスタンプ)を比較し、新しい方を採用する。
+// - 既知の制約: 別端末に切り替えた後も元の端末のタブを開いたまま操作すると、その古い
+//   状態がsavedAtだけ新しくなって上書きしてしまう可能性がある。常時ポーリングはしていない
+//   (クイズ応答のテンポを損なうため)ので、「中断してから別端末に切り替える」という
+//   通常の使い方の範囲でのみ有効な対策と理解しておくこと。
 function loadSession() {
   try {
     const s = localStorage.getItem(LS_SESSION);
     return s ? JSON.parse(s) : null;
   } catch { return null; }
 }
-function saveSession(s) { localStorage.setItem(LS_SESSION, JSON.stringify(s)); }
-function clearSession() { localStorage.removeItem(LS_SESSION); }
+function saveSession(s) {
+  s.savedAt = Date.now();
+  localStorage.setItem(LS_SESSION, JSON.stringify(s));
+  remoteSaveSession('main', s);
+}
+function clearSession() {
+  localStorage.removeItem(LS_SESSION);
+  remoteSaveSession('main', null);
+}
+
+// 統計データ等と同様、DBへのミラーリングはfire-and-forget(失敗してもクイズ進行に影響させない)。
+// ローカルサーバー未起動環境(GitHub Pages単体等)では常に失敗するが、その場合でも
+// localStorageへの保存自体は完了しているため、同一端末での続行に支障は無い。
+// 同じkeyへの書き込みを、送信した順番通りにサーバーへ届くよう直列化するキュー。
+// clearSession()の直後にstartNewSession()のsaveSession()が呼ばれる箇所があるが、
+// どちらもfire-and-forgetのため、直列化せずに投げるとSupabaseへの往復時間のばらつきにより
+// 「後から送ったはずの新セッション保存」より「先に送ったクリア」の方が遅れて到着し、
+// 新しいセッションをnullで上書きしてしまう競合が実際に発生した(2026-09-19、
+// クロスデバイス動作確認時に発覚)。同一key内は必ず直前の書き込み完了を待ってから
+// 次を送ることで、到着順序を送信順序と一致させる。
+const remoteSaveQueues = {};
+async function remoteSaveSession(key, sessionOrNull) {
+  const prev = remoteSaveQueues[key] || Promise.resolve();
+  const run = prev.catch(() => {}).then(() => apiFetch(`/api/quiz-session/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ data: sessionOrNull }),
+  }));
+  remoteSaveQueues[key] = run;
+  try {
+    await run;
+  } catch {
+    // 無音でよい(上記コメント参照)。
+  }
+}
+
+// ページ読み込み時に一度だけ、DB側の最新セッションとlocalStorageを突き合わせ、
+// savedAtが新しい方を採用する。storageKeyはlocalStorageのキー(LS_SESSION/LS_WAEI_SESSION)、
+// dbKeyはquiz_sessions.session_key('main'/'waei')。
+async function reconcileSessionWithRemote(dbKey, storageKey) {
+  let row = null;
+  try {
+    const { data, error } = await sb
+      .from('quiz_sessions')
+      .select('data, updated_at')
+      .eq('session_key', dbKey)
+      .maybeSingle();
+    if (error) throw error;
+    row = data;
+  } catch {
+    return; // 取得できない場合はローカルの状態をそのまま使う
+  }
+  if (!row) return; // このセッション種別はまだ一度もDBに保存されていない(次回保存時に作成される)
+
+  let local = null;
+  try { local = JSON.parse(localStorage.getItem(storageKey) || 'null'); } catch { local = null; }
+  const localSavedAt = local?.savedAt || 0;
+  const remoteSession = row.data || null;
+  const remoteSavedAt = remoteSession?.savedAt ?? (Date.parse(row.updated_at) || 0);
+
+  if (remoteSavedAt > localSavedAt) {
+    // DB側(=他端末での続き、または他端末での完了によるクリア)の方が新しい
+    if (remoteSession) localStorage.setItem(storageKey, JSON.stringify(remoteSession));
+    else localStorage.removeItem(storageKey);
+  } else if (local && localSavedAt > remoteSavedAt) {
+    // ローカルの方が新しいのにDBに未反映(オフライン等) → 反映しておく
+    remoteSaveSession(dbKey, local);
+  }
+}
 
 // 「前回と同じテスト」ボタン用。セッションが完了・消去された後も、直近に選ばれた
 // モードだけは覚えておく。
@@ -1131,8 +1207,17 @@ function loadWaeiSession() {
     return s ? JSON.parse(s) : null;
   } catch { return null; }
 }
-function saveWaeiSession(s) { localStorage.setItem(LS_WAEI_SESSION, JSON.stringify(s)); }
-function clearWaeiSession() { localStorage.removeItem(LS_WAEI_SESSION); }
+// 英単語クイズと同様、DB(quiz_sessions, session_key='waei')にもミラーリングし、
+// クロスデバイスでの再開を可能にする([[reconcileSessionWithRemote]]参照)。
+function saveWaeiSession(s) {
+  s.savedAt = Date.now();
+  localStorage.setItem(LS_WAEI_SESSION, JSON.stringify(s));
+  remoteSaveSession('waei', s);
+}
+function clearWaeiSession() {
+  localStorage.removeItem(LS_WAEI_SESSION);
+  remoteSaveSession('waei', null);
+}
 
 // ---------- 和英表現練習：ホーム ----------
 
@@ -2333,7 +2418,11 @@ async function init() {
     return;
   }
   try {
-    await Promise.all([refreshWords(), refreshExpressions(), refreshLatestClears()]);
+    await Promise.all([
+      refreshWords(), refreshExpressions(), refreshLatestClears(),
+      reconcileSessionWithRemote('main', LS_SESSION),
+      reconcileSessionWithRemote('waei', LS_WAEI_SESSION),
+    ]);
   } catch (err) {
     renderStatusBar('error', err.message);
     return;
