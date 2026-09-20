@@ -153,8 +153,11 @@ async function remoteSaveSession(key, sessionOrNull) {
   remoteSaveQueues[key] = run;
   try {
     await run;
-  } catch {
-    // 無音でよい(上記コメント参照)。
+    return { ok: true };
+  } catch (err) {
+    // 呼び出し元の大半はfire-and-forget(戻り値を見ない)だが、手動の
+    // 「DBへ保存」ボタンはこの戻り値を使って成功/失敗を画面に表示する。
+    return { ok: false, error: err.message };
   }
 }
 
@@ -190,6 +193,39 @@ async function reconcileSessionWithRemote(dbKey, storageKey) {
     // ローカルの方が新しいのにDBに未反映(オフライン等) → 反映しておく
     remoteSaveSession(dbKey, local);
   }
+}
+
+// クイズ画面の「💾 自動保存中」バッジをボタン化したもの。通常の保存はfire-and-forgetで
+// 結果が見えないため、iPhone→PC間などで実際にDBへ届いたかを利用者が確認できるよう、
+// 押した時だけ結果(成功/失敗)を明示的に表示する「DBへのマルチデバイスクロスセーブ」。
+// 2026-09-20: 自動のクロスデバイス同期だけでは反映されなかった実例が報告されたため追加。
+// なお、これは「今の端末の状態をDBへ送る(push)」ボタンであり、もう一方の端末側で
+// それを取り込む(pull)にはページの再読み込みが必要(reconcileSessionWithRemoteは
+// 起動時にしか走らない)。開きっぱなしのタブでは自動反映されない点に注意。
+function wireCrossSaveButton(btnId, dbKey, loadSessionFn) {
+  const btn = $(btnId);
+  if (!btn) return;
+  const defaultLabel = btn.textContent;
+  btn.addEventListener('click', async () => {
+    const session = loadSessionFn();
+    if (!session) return;
+    btn.disabled = true;
+    btn.classList.remove('ok', 'error');
+    btn.textContent = '保存中…';
+    const result = await remoteSaveSession(dbKey, session);
+    if (result.ok) {
+      btn.classList.add('ok');
+      btn.textContent = `✅ 保存しました(${new Date().toLocaleTimeString('ja-JP')})`;
+    } else {
+      btn.classList.add('error');
+      btn.textContent = `⚠️ 失敗: ${result.error}`;
+    }
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.classList.remove('ok', 'error');
+      btn.textContent = defaultLabel;
+    }, 4000);
+  });
 }
 
 // 「前回と同じテスト」ボタン用。セッションが完了・消去された後も、直近に選ばれた
@@ -1246,6 +1282,9 @@ function renderWaeiHome() {
   $('waeiErrorMsg').textContent = '';
   renderStatusBar('ok');
   showScreen('waeiHome');
+
+  // renderHome()と同様、開きっぱなしのタブでも別端末の進行を拾えるようバックグラウンドで再確認する。
+  refreshSessionsFromRemoteInBackground();
 }
 
 // ---------- 和英表現練習：登録・編集 ----------
@@ -1541,6 +1580,27 @@ function renderHome() {
   renderAiKeyStatus();
   renderStatusBar('ok');
   showScreen('home');
+
+  // ページを開いた瞬間(init())だけでなく、ホームに戻るたびにもバックグラウンドで
+  // DB側を確認しなおす。例えばPCのタブを開きっぱなしのままiPhoneで続きをした場合、
+  // そのタブはinit()を再実行しないため、この再確認が無いと拾えない
+  // (2026-09-20、実際にこのケースで反映されなかった報告を受けて追加)。
+  // 変更が無ければ何もしない(無駄な再描画をしない)。
+  refreshSessionsFromRemoteInBackground();
+}
+
+async function refreshSessionsFromRemoteInBackground() {
+  const beforeMain = localStorage.getItem(LS_SESSION);
+  const beforeWaei = localStorage.getItem(LS_WAEI_SESSION);
+  await Promise.all([
+    reconcileSessionWithRemote('main', LS_SESSION),
+    reconcileSessionWithRemote('waei', LS_WAEI_SESSION),
+  ]);
+  const changed = localStorage.getItem(LS_SESSION) !== beforeMain
+    || localStorage.getItem(LS_WAEI_SESSION) !== beforeWaei;
+  if (!changed) return;
+  if (currentScreenName === 'home') renderHome();
+  else if (currentScreenName === 'waeiHome') renderWaeiHome();
 }
 
 function renderAiKeyStatus() {
@@ -2187,6 +2247,8 @@ function bindEvents() {
     }
   });
 
+  wireCrossSaveButton('crossSaveBtn', 'main', loadSession);
+
   $('revealBtn').addEventListener('click', reveal);
   $('aiExampleBtn').addEventListener('click', requestAiExamples);
   $('saveAiNoteBtn').addEventListener('click', saveAiNote);
@@ -2350,6 +2412,8 @@ function bindEvents() {
       renderWaeiHome();
     }
   });
+
+  wireCrossSaveButton('waeiCrossSaveBtn', 'waei', loadWaeiSession);
 
   $('waeiRevealBtn').addEventListener('click', waeiReveal);
   $('waeiCorrectBtn').addEventListener('click', () => waeiJudge(true));
