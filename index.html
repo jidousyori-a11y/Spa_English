@@ -216,6 +216,10 @@
     </header>
     <div class="table-toolbar">
       <p id="wordsTableCount" class="muted"></p>
+      <span class="table-search-box">
+        <input type="text" id="wordsTableSearchInput" class="custom-input" placeholder="🔍 English/日本語で部分一致検索（全単語データが対象）">
+        <button type="button" id="wordsTableSearchClearBtn" class="secondary" hidden>✕</button>
+      </span>
       <button type="button" id="wordsTableDeleteBtn" class="table-delete-btn" disabled>🗑 選択した単語を削除（<span id="wordsTableSelectedCount">0</span>件）</button>
     </div>
     <div class="table-scroll">

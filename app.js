@@ -762,6 +762,17 @@ async function submitSelectedRegisterCandidates() {
 const WORDS_TABLE_PAGE_SIZE = 100;
 let wordsTablePage = 0;
 let wordsTableTotalPages = 1;
+let wordsTableSearchTerm = ''; // 部分一致検索。空文字なら全件対象(従来通り)。
+
+// ILIKEパターン中のワイルドカード(%,_)とエスケープ文字(\)自体をリテラル扱いにする。
+function escapeLikePattern(s) {
+  return s.replace(/[\\%_]/g, (m) => '\\' + m);
+}
+// PostgRESTの.or()フィルタ文字列内の値は、カンマ・丸括弧等を含みうるため常にダブル
+// クオートで囲む。ダブルクオートとバックスラッシュ自体はさらにエスケープする。
+function toPostgrestOrValue(pattern) {
+  return `"${pattern.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
 
 // 全データ閲覧での複数選択削除用。選択状態は表示中のページ内でのみ保持し、
 // ページ遷移（削除後の再読み込みも含む）のたびにクリアする。
@@ -793,16 +804,28 @@ async function loadWordsTablePage(page) {
 
   try {
     // データ番号(row)の降順 = 直近に登録されたものが1ページ目の先頭に来る。
-    const { data, error, count } = await sb
+    let query = sb
       .from('words')
-      .select('id, row, en, ja, marker, ai_note, selected_count, tested_count, wrong_count', { count: 'exact' })
+      .select('id, row, en, ja, marker, ai_note, selected_count, tested_count, wrong_count', { count: 'exact' });
+
+    const term = wordsTableSearchTerm.trim();
+    if (term) {
+      // 表示中のページだけでなく全単語データが検索対象になるよう、クライアント側の
+      // フィルタではなくSupabaseへのクエリ自体に条件を付ける(English/日本語のいずれかに部分一致)。
+      const pattern = toPostgrestOrValue(`%${escapeLikePattern(term)}%`);
+      query = query.or(`en.ilike.${pattern},ja.ilike.${pattern}`);
+    }
+
+    const { data, error, count } = await query
       .order('row', { ascending: false })
       .range(from, to);
     if (error) throw error;
 
     wordsTablePage = page;
     wordsTableTotalPages = Math.max(1, Math.ceil((count || 0) / WORDS_TABLE_PAGE_SIZE));
-    countEl.textContent = `全 ${(count || 0).toLocaleString()} 件`;
+    countEl.textContent = term
+      ? `検索結果 ${(count || 0).toLocaleString()} 件（全単語データが対象）`
+      : `全 ${(count || 0).toLocaleString()} 件`;
     pageLabel.textContent = `${page + 1} / ${wordsTableTotalPages} ページ`;
     pageInput.placeholder = String(page + 1);
     pageInput.max = String(wordsTableTotalPages);
@@ -810,8 +833,10 @@ async function loadWordsTablePage(page) {
     // No.は実データのrow列の値ではなく、表示専用の通し番号（新しいものほど大きい番号に
     // なるよう全件数から逆算する）。削除してもrow列自体は詰めないため、Excel差分取り込み
     // (english_spabase_updateスキル)が前提とする「row値=Excel行番号」の対応関係は崩れない。
+    // ただし検索中はcountが絞り込み後の件数になり、この逆算が成立しない(全体の中での
+    // 本来の順番とズレる)ため、検索中はrow値そのものを表示する。
     tbody.innerHTML = data.map((w, i) => {
-      const displayNo = (count || 0) - (from + i);
+      const displayNo = term ? w.row : (count || 0) - (from + i);
       const wrongRate = w.tested_count > 0 ? `${(w.wrong_count / w.tested_count * 100).toFixed(1)}%` : '—';
       return `
       <tr>
@@ -875,6 +900,29 @@ function jumpToWordsTablePage() {
 function renderWordsTableView() {
   showScreen('wordsTableView');
   $('wordsTablePageInput').value = '';
+  wordsTableSearchTerm = '';
+  $('wordsTableSearchInput').value = '';
+  $('wordsTableSearchClearBtn').hidden = true;
+  loadWordsTablePage(0);
+}
+
+// 検索欄への入力を反映して1ページ目から再読み込みする。入力のたびに毎回問い合わせる
+// と負荷・表示のちらつきが大きいため、少し待ってから(デバウンス)実行する。
+let wordsTableSearchDebounceTimer = null;
+function onWordsTableSearchInput() {
+  const value = $('wordsTableSearchInput').value;
+  $('wordsTableSearchClearBtn').hidden = !value;
+  clearTimeout(wordsTableSearchDebounceTimer);
+  wordsTableSearchDebounceTimer = setTimeout(() => {
+    wordsTableSearchTerm = value;
+    loadWordsTablePage(0);
+  }, 300);
+}
+function clearWordsTableSearch() {
+  clearTimeout(wordsTableSearchDebounceTimer);
+  $('wordsTableSearchInput').value = '';
+  $('wordsTableSearchClearBtn').hidden = true;
+  wordsTableSearchTerm = '';
   loadWordsTablePage(0);
 }
 
@@ -2330,6 +2378,8 @@ function bindEvents() {
   $('wordsTablePageInput').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') jumpToWordsTablePage();
   });
+  $('wordsTableSearchInput').addEventListener('input', onWordsTableSearchInput);
+  $('wordsTableSearchClearBtn').addEventListener('click', clearWordsTableSearch);
   // 行は都度innerHTMLで再生成されるため、tbody自体にイベント委任する。
   $('wordsTableBody').addEventListener('click', (e) => {
     const btn = e.target.closest('.row-edit-link');

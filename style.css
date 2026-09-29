@@ -685,6 +685,16 @@ h2 {
 }
 .table-toolbar .muted { margin: 0; }
 
+.table-search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+.table-search-box .custom-input { width: 100%; box-sizing: border-box; text-align: left; }
+
 .table-delete-btn {
   background: #fff;
   border: 1px solid #fca5a5;
