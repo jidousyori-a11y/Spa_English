@@ -845,4 +845,19 @@ h2 {
   }
   .wrong-list .en { font-size: inherit; }
   .wrong-list .ja { font-size: inherit; }
+
+  /* AI補足領域: PCでは読みにくいとの指摘を受け、#app(最大720px)の制約を越えて
+     横幅を約1.5倍(目安1000px)まで広げ、文字も大きくする。幅はビューポート基準の
+     いわゆる"full bleed"手法(position:relative + left:50% + translateX(-50%))で
+     親(#app)の中央寄せ・幅制限の影響を受けずに画面中央に広げる。 */
+  .ai-box {
+    width: 100vw;
+    max-width: 1000px;
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .ai-result { font-size: 17px; padding: 20px 24px; }
+  .ai-result .ai-example-en { font-size: 20px; }
+  .ai-result .ai-example-ja { font-size: 17px; }
 }
