@@ -1892,22 +1892,69 @@ function renderInline(text) {
   return s;
 }
 
-// 「英語の例文」+「その日本語訳」が交互に並ぶ段落かどうかを判定する。
-// AIの回答は例文部分を箇条書き(-や数字)にしてくれるとは限らず、ただの平文の
-// 行の並びとして返ってくることが多いため、見た目上の言語判定で検出する。
+// 「英語の例文」+「その日本語訳」のペアを検出するための判定群。
+// AIの回答は例文部分を厳密に同じ書式で返してくれるとは限らず、実データを見ると
+// 「*箇条書き + ネストした*箇条書き」「番号付き + ラベル(**英語**:/**日本語訳**:)付きの
+// 字下げ継続行」「ラベルも箇条書きマークも無いただの平文の行の並び」の3通りが
+// 混在していた(2026-10-02、既存のAI補足データで確認)。見た目上の言語判定と
+// インデント(字下げ)の深さを組み合わせて、これらをまとめて検出する。
 function isMostlyJapanese(s) {
-  const jp = (s.match(/[぀-ヿ一-鿿]/g) || []).length;
-  return jp > 0 && jp / s.length > 0.3;
+  // 記号(*_`:：や空白)は比率計算のノイズになる(短い「**動詞**:」のようなラベルが
+  // 記号に占有されて「日本語ではない」と誤判定されてしまう)ため、先に取り除いてから判定する。
+  const letters = s.replace(/[*_`:：\s]/g, '');
+  if (!letters) return false;
+  const jp = (letters.match(/[぀-ヿ一-鿿]/g) || []).length;
+  return jp / letters.length > 0.3;
 }
 function isExamplePairBlock(lines) {
   if (lines.length < 2 || lines.length % 2 !== 0) return false;
   return lines.every((line, i) => isMostlyJapanese(line) === (i % 2 === 1));
 }
+// 行頭の「**英語**: 」「**英語:** 」「日本語訳: 」等のラベルを取り除く
+// (コロンが**の内側/外側どちらのパターンもある)。
+function stripExampleLabel(s) {
+  return s.replace(/^\*{0,2}(英語|日本語訳|English|Japanese)\*{0,2}[:：]\*{0,2}\s*/u, '');
+}
+// 行頭の箇条書き(-/*)・番号(1. 1))マークを取り除く。
+function stripListMarker(line) {
+  let m = line.match(/^[-*]\s+(.*)$/);
+  if (m) return m[1];
+  m = line.match(/^\d+[.)]\s+(.*)$/);
+  if (m) return m[1];
+  return line;
+}
+function leadingSpaces(raw) {
+  const m = raw.match(/^[ \t]*/);
+  return m ? m[0].replace(/\t/g, '    ').length : 0;
+}
+// rawLines[i]が英語の例文、rawLines[i+1]がそれより字下げされた日本語訳であれば
+// {en, ja} を返す(「*箇条書き+ネスト*箇条書き」「番号+ラベル付き継続行」等を両対応)。
+function tryParseExamplePair(rawLines, i) {
+  const line1 = rawLines[i];
+  if (line1 === undefined) return null;
+  const trimmed1 = line1.trim();
+  if (trimmed1 === '') return null;
+  const indent1 = leadingSpaces(line1);
+
+  const enContent = stripExampleLabel(stripListMarker(trimmed1)).trim();
+  if (!enContent || isMostlyJapanese(enContent)) return null;
+
+  const line2 = rawLines[i + 1];
+  if (line2 === undefined) return null;
+  const trimmed2 = line2.trim();
+  if (trimmed2 === '') return null;
+  if (leadingSpaces(line2) <= indent1) return null; // 字下げされた続きの行でなければペアと見なさない
+
+  const jaContent = stripExampleLabel(stripListMarker(trimmed2)).trim();
+  if (!jaContent || !isMostlyJapanese(jaContent)) return null;
+
+  return { en: enContent, ja: jaContent };
+}
 
 function markdownToHtml(md) {
   const lines = md.replace(/\r\n/g, '\n').split('\n');
   const htmlParts = [];
-  let listType = null;
+  let listType = null; // null | 'ul' | 'ol' | 'example'
   let paragraphLines = [];
 
   const flushParagraph = () => {
@@ -1928,15 +1975,16 @@ function markdownToHtml(md) {
     paragraphLines = [];
   };
   const closeList = () => {
-    if (listType) {
-      htmlParts.push(`</${listType}>`);
-      listType = null;
-    }
+    if (listType === 'ol') htmlParts.push('</ol>');
+    else if (listType) htmlParts.push('</ul>'); // 'ul'と'example'はどちらも<ul>タグ
+    listType = null;
   };
 
-  for (const rawLine of lines) {
+  let i = 0;
+  while (i < lines.length) {
+    const rawLine = lines[i];
     const line = rawLine.trim();
-    if (line === '') { flushParagraph(); closeList(); continue; }
+    if (line === '') { flushParagraph(); closeList(); i++; continue; }
 
     const headerMatch = line.match(/^(#{1,6})\s+(.*)$/);
     if (headerMatch) {
@@ -1944,6 +1992,16 @@ function markdownToHtml(md) {
       closeList();
       const level = Math.min(headerMatch[1].length + 2, 6);
       htmlParts.push(`<h${level}>${renderInline(headerMatch[2])}</h${level}>`);
+      i++;
+      continue;
+    }
+
+    const pair = tryParseExamplePair(lines, i);
+    if (pair) {
+      flushParagraph();
+      if (listType !== 'example') { closeList(); htmlParts.push('<ul class="ai-example-list">'); listType = 'example'; }
+      htmlParts.push(`<li class="ai-example-item"><span class="ai-example-en">${renderInline(pair.en)}</span><br><span class="ai-example-ja">${renderInline(pair.ja)}</span></li>`);
+      i += 2;
       continue;
     }
 
@@ -1952,6 +2010,7 @@ function markdownToHtml(md) {
       flushParagraph();
       if (listType !== 'ul') { closeList(); htmlParts.push('<ul>'); listType = 'ul'; }
       htmlParts.push(`<li>${renderInline(ulMatch[1])}</li>`);
+      i++;
       continue;
     }
 
@@ -1960,11 +2019,13 @@ function markdownToHtml(md) {
       flushParagraph();
       if (listType !== 'ol') { closeList(); htmlParts.push('<ol>'); listType = 'ol'; }
       htmlParts.push(`<li>${renderInline(olMatch[1])}</li>`);
+      i++;
       continue;
     }
 
     closeList();
     paragraphLines.push(line);
+    i++;
   }
   flushParagraph();
   closeList();
