@@ -1892,6 +1892,18 @@ function renderInline(text) {
   return s;
 }
 
+// 「英語の例文」+「その日本語訳」が交互に並ぶ段落かどうかを判定する。
+// AIの回答は例文部分を箇条書き(-や数字)にしてくれるとは限らず、ただの平文の
+// 行の並びとして返ってくることが多いため、見た目上の言語判定で検出する。
+function isMostlyJapanese(s) {
+  const jp = (s.match(/[぀-ヿ一-鿿]/g) || []).length;
+  return jp > 0 && jp / s.length > 0.3;
+}
+function isExamplePairBlock(lines) {
+  if (lines.length < 2 || lines.length % 2 !== 0) return false;
+  return lines.every((line, i) => isMostlyJapanese(line) === (i % 2 === 1));
+}
+
 function markdownToHtml(md) {
   const lines = md.replace(/\r\n/g, '\n').split('\n');
   const htmlParts = [];
@@ -1899,10 +1911,21 @@ function markdownToHtml(md) {
   let paragraphLines = [];
 
   const flushParagraph = () => {
-    if (paragraphLines.length) {
+    if (!paragraphLines.length) return;
+    if (isExamplePairBlock(paragraphLines)) {
+      // 英語例文には行頭に箇条書きマークを付け、対応する日本語訳はマーク無しで
+      // それより右に字下げして表示する(どちらに対応する訳か一目で分かるように)。
+      const items = [];
+      for (let i = 0; i < paragraphLines.length; i += 2) {
+        const en = renderInline(paragraphLines[i]);
+        const ja = renderInline(paragraphLines[i + 1]);
+        items.push(`<li class="ai-example-item"><span class="ai-example-en">${en}</span><br><span class="ai-example-ja">${ja}</span></li>`);
+      }
+      htmlParts.push(`<ul class="ai-example-list">${items.join('')}</ul>`);
+    } else {
       htmlParts.push(`<p>${paragraphLines.map(renderInline).join('<br>')}</p>`);
-      paragraphLines = [];
     }
+    paragraphLines = [];
   };
   const closeList = () => {
     if (listType) {

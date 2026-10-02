@@ -608,6 +608,15 @@ h2 {
 }
 .ai-result strong { color: #164e63; }
 
+.ai-result .ai-example-list { list-style: disc; margin: 0 0 10px; padding-left: 22px; }
+.ai-result .ai-example-item { margin-bottom: 10px; }
+.ai-result .ai-example-item:last-child { margin-bottom: 0; }
+.ai-result .ai-example-ja {
+  display: inline-block;
+  margin-left: 1.4em;
+  color: #475569;
+}
+
 .actions { display: flex; flex-direction: column; gap: 14px; }
 
 .primary {
