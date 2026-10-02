@@ -1973,25 +1973,30 @@ function markdownToHtml(md) {
 
 // ---------- AI例文リクエスト ----------
 
-function buildGeminiPrompt(en, ja) {
-  return (
-    `英単語「${en}」（日本語訳: 「${ja}」）について、日本語で簡潔に回答してください。\n` +
-    `1. 発音記号（IPA）と、カタカナで表現するなら何に近いかを示してください。カタカナ表記のうち、アクセント（強く読む部分）に当たる箇所は **太字** にしてください。\n` +
-    `2. 品詞分類を、あてはまるものをすべて列挙してください（例: 名詞 / 自動詞 / 他動詞 / 形容詞 / 副詞 など）。特に動詞の場合は、自動詞・他動詞のどちらか、あるいは両方の用法があるかを明確にしてください。複数の品詞・用法がある場合、実際によく使われるのはどれかという傾向があれば、その旨も記載してください（例:「主に他動詞として使われる」等）。特に補足すべき傾向がなければその旨は省略して構いません。\n` +
-    `3. この単語を使った例文を3つ、英語とその日本語訳のペアで挙げてください。\n` +
-    `4. 日本語訳「${ja}」だけでは伝わりにくいニュアンスや使い分けがあれば、2〜3行で補足してください。特になければ「特になし」としてください。\n` +
-    `見出しや箇条書きを使い、読みやすく整形してください。`
-  );
+// プロンプト雛形はprompts/word-note.mdに一本化する(2026-10-02)。以前はこのファイルとは
+// 別に、ブラウザから直接Gemini APIキーを使う経路(callGeminiDirect)専用の固定文字列を
+// ここに持っていたため、word-note.mdだけ編集しても直接呼び出し経路には反映されない
+// 不具合があった。サーバー側(server.jsのrenderWordNotePromptFile)と同様、毎回ファイルを
+// 取得して{{en}}/{{ja}}を置換する(キャッシュしない。編集が即座に両経路へ反映されるように)。
+// prompts/はGitHub Pagesにも公開されている静的ファイルなので、ローカルサーバーが
+// 無い環境でもこのfetch自体は問題なく動く。
+async function buildGeminiPrompt(en, ja) {
+  const res = await fetch('prompts/word-note.md', { cache: 'no-store' });
+  if (!res.ok) throw new Error(`プロンプト雛形(prompts/word-note.md)の取得に失敗しました(HTTP ${res.status})`);
+  const template = await res.text();
+  const vars = { en, ja };
+  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '');
 }
 
 // ブラウザから直接Gemini APIを呼ぶ経路。この端末のlocalStorageに保存されたキーのみを使用する。
 async function callGeminiDirect(en, ja, apiKey) {
+  const prompt = await buildGeminiPrompt(en, ja);
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: buildGeminiPrompt(en, ja) }] }] }),
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     }
   );
   const data = await res.json();
