@@ -10,7 +10,7 @@ const LS_IMPORT_META = 'eiwq.importMeta.v1'; // 表示用のみ。データ本�
 const LS_WAEI_SESSION = 'waei.session.v1';
 const LS_CLEAR_SAVE_ERROR = 'eiwq.clearSaveError.v1'; // クリア記録の保存に失敗した際、ホーム画面に警告を出し続けるための記録。
 const SHEET_NAME = 'Wrk';
-const QUIZ_SIZE = 15;
+const QUIZ_SIZE = 10;
 const GEMINI_MODEL = 'gemini-2.5-flash';
 
 const $ = (id) => document.getElementById(id);
@@ -254,8 +254,8 @@ function getEffectiveLastMode() {
 }
 
 function loadCustomSettings() {
-  try { return JSON.parse(localStorage.getItem(LS_CUSTOM)) || { x: 15, y: 5000 }; }
-  catch { return { x: 15, y: 5000 }; }
+  try { return JSON.parse(localStorage.getItem(LS_CUSTOM)) || { x: 10, y: 5000 }; }
+  catch { return { x: 10, y: 5000 }; }
 }
 function saveCustomSettings(x, y) { localStorage.setItem(LS_CUSTOM, JSON.stringify({ x, y })); }
 
@@ -302,7 +302,7 @@ function computeLatestStreak(datesDesc) {
 
 // 連続達成日数の対象となるセッションかどうかを判定する。
 // - 上部4モード（Latest単語／完全ランダム／下から300／下から100）は常に対象
-// - 一番下のカスタム設定テストは、出題数が15問以上の場合のみ対象
+// - 一番下のカスタム設定テストは、出題数が10問以上の場合のみ対象
 //
 // 判定には session.originalCount（セッション開始時の出題数、nextRound()を挟んでも
 // 不変）を使う。session.words.length ではない点に注意：nextRound()は間違えた問題だけに
@@ -312,7 +312,7 @@ function computeLatestStreak(datesDesc) {
 function isStreakEligible(session) {
   if (['latest50', 'all', 'bottom300', 'bottom100'].includes(session.mode)) return true;
   const count = session.originalCount ?? session.words.length;
-  if (session.mode === 'custom' && count >= 15) return true;
+  if (session.mode === 'custom' && count >= 10) return true;
   return false;
 }
 
@@ -381,7 +381,7 @@ async function manualRecordToday() {
     alert('今日の分は既に記録されています。');
     return;
   }
-  if (!confirm('今日、対象のテスト（Latest単語/完全ランダム/下から300/下から100/15問以上のカスタム設定のいずれか）を実際に完了している場合のみ押してください。連続記録に今日の日付を追加します。よろしいですか？')) return;
+  if (!confirm('今日、対象のテスト（Latest単語/完全ランダム/下から300/下から100/10問以上のカスタム設定のいずれか）を実際に完了している場合のみ押してください。連続記録に今日の日付を追加します。よろしいですか？')) return;
   try {
     await apiFetch('/api/latest-clears', { method: 'POST', body: JSON.stringify({ date: today, exempted: false }) });
     latestClearDates = [{ date: today, exempted: false }, ...latestClearDates.filter(d => d.date !== today)];
@@ -1116,7 +1116,7 @@ function pickWords(allWords, mode, latestAddedCount, unusedOnly) {
   }
   switch (mode) {
     case 'latest50': {
-      const n = Math.max(1, latestAddedCount || 15);
+      const n = Math.max(1, latestAddedCount || 10);
       pool = allWords.slice(-n);
       if (unusedOnly) pool = pool.filter(w => !(w.tested_count > 0));
       label = `Latest単語(${n}個)`;
@@ -1584,7 +1584,7 @@ function renderHome() {
     } else {
       $('lastImportText').textContent = '';
     }
-    const latestN = Math.max(1, (meta && meta.latestAddedCount) || 15);
+    const latestN = Math.max(1, (meta && meta.latestAddedCount) || 10);
     $('latest50Title').textContent = `Latest単語(${latestN}個)`;
     modeBtns.forEach(b => b.disabled = false);
   } else {
@@ -1699,7 +1699,7 @@ function isUnusedOnlyChecked() {
 
 function startCustomSession() {
   if (!words.length) return;
-  const x = Math.max(1, parseInt($('customX').value) || 15);
+  const x = Math.max(1, parseInt($('customX').value) || 10);
   const y = Math.max(1, parseInt($('customY').value) || 5000);
   saveCustomSettings(x, y);
   saveLastMode('custom');
